@@ -1,4 +1,5 @@
 import type { Sale } from '../types/sale';
+import type { StoreSettings } from '../types/settings';
 import { paymentMethodLabels } from '../types/payment';
 import { formatMoney, sumMoney } from '../utils/money';
 
@@ -7,6 +8,7 @@ export type ReceiptPaperSize = '58mm' | '80mm' | 'a4';
 type ReceiptProps = {
   sale: Sale;
   paperSize: ReceiptPaperSize;
+  settings: StoreSettings;
 };
 
 const dateFormatter = new Intl.DateTimeFormat('pt-BR', {
@@ -16,7 +18,7 @@ const timeFormatter = new Intl.DateTimeFormat('pt-BR', {
   hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
 });
 
-export function Receipt({ sale, paperSize }: ReceiptProps) {
+export function Receipt({ sale, paperSize, settings }: ReceiptProps) {
   const cashPayments = sale.payments.filter((payment) => payment.method === 'cash');
   const cashReceivedInCents = sumMoney(cashPayments.map((payment) => payment.amountReceivedInCents ?? payment.amountInCents));
   const changeInCents = sumMoney(cashPayments.map((payment) => payment.changeInCents ?? 0));
@@ -26,8 +28,10 @@ export function Receipt({ sale, paperSize }: ReceiptProps) {
     <article className={`print-root receipt-paper-${paperSize}`}>
       <div className="receipt">
         <header className="receipt-header">
-          <h3>Raiz — PDV</h3>
-          <p>COMPROVANTE DE VENDA</p>
+          <h3>{settings.storeName.toLocaleUpperCase('pt-BR')}</h3>
+          {settings.address && <p className="receipt-contact">{settings.address}</p>}
+          {settings.phone && <p className="receipt-contact">{settings.phone}</p>}
+          <p className="receipt-title">COMPROVANTE DE VENDA</p>
         </header>
         <div className="receipt-meta">
           <div><span>Venda</span><b>#{String(sale.number).padStart(6, '0')}</b></div>
@@ -63,8 +67,9 @@ export function Receipt({ sale, paperSize }: ReceiptProps) {
           )}
         </div>
         <hr />
-        <p className="receipt-thanks">Obrigado pela preferência!</p>
+        {settings.receiptFooter && <p className="receipt-thanks">{settings.receiptFooter}</p>}
       </div>
     </article>
   );
 }
+
