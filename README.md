@@ -21,7 +21,8 @@ npm run build
 - Adicionar produtos ao carrinho, alterar quantidades e remover itens.
 - Calcular subtotal e total usando valores inteiros em centavos.
 - Salvar localmente o rascunho atual do carrinho no navegador para recuperação após recarga.
-- Exibir um resumo ao finalizar; nenhuma venda concluída é persistida nesta etapa.
+- Finalizar pagamento em dinheiro, Pix, débito ou crédito; em dinheiro, validar o valor recebido e calcular troco em centavos.
+- Exibir o resumo da venda concluída sem persistir a venda definitiva.
 
 O catálogo atual é demonstrativo e definido em `src/data/products.ts`. O rascunho do carrinho fica em `localStorage` no computador/navegador em uso; vendas concluídas não são salvas. O app não solicita serviços externos em tempo de execução e usa Segoe UI do sistema para funcionar sem baixar fontes.
 
@@ -30,5 +31,5 @@ O catálogo atual é demonstrativo e definido em `src/data/products.ts`. O rascu
 - `outputs/index.html`: protótipo navegável original.
 - `outputs/Direcao-visual.md`: identidade visual, componentes e recomendações de UX.
 
-Estoque, pagamentos, cadastro de produtos, persistência de vendas e os demais módulos do protótipo ainda não estão implementados.
+Persistência definitiva de vendas, histórico, estoque, cadastro de produtos e os demais módulos do protótipo ainda não estão implementados.
 
