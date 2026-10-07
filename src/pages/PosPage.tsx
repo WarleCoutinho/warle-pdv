@@ -10,6 +10,7 @@ import { saveCompletedSale } from '../services/saleStorage';
 import type { CartItem, Product } from '../types/product';
 import type { SalePayment } from '../types/payment';
 import type { Sale } from '../types/sale';
+import type { AppPage } from '../types/navigation';
 import { changeCartItemQuantity, createCartItem } from '../utils/cart';
 import { sumMoney } from '../utils/money';
 import { calculatePaymentTotals, createSalePayment } from '../utils/payments';
@@ -47,10 +48,10 @@ function cartReducer(items: CartItem[], action: CartAction): CartItem[] {
 }
 
 type PosPageProps = {
-  onOpenHistory: () => void;
+  onNavigate: (page: AppPage) => void;
 };
 
-export function PosPage({ onOpenHistory }: PosPageProps) {
+export function PosPage({ onNavigate }: PosPageProps) {
   const finalizingSale = useRef(false);
   const [cart, dispatch] = useReducer(cartReducer, products, loadDraftCart);
   const [search, setSearch] = useState('');
@@ -129,7 +130,7 @@ export function PosPage({ onOpenHistory }: PosPageProps) {
     <div className="shell pos-shell">
       <div className="main pos-main">
         <main className="content pos-content">
-          <PosHeader onOpenHistory={onOpenHistory} />
+          <PosHeader onNavigate={onNavigate} />
           <div className="title-row">
             <div>
               <h1>Nova venda</h1>
