@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { paymentMethodLabels } from '../types/payment';
 import type { Sale } from '../types/sale';
 import { formatMoney, sumMoney } from '../utils/money';
+import { printCurrentReceipt } from '../utils/printing';
 import { Receipt, type ReceiptPaperSize } from './Receipt';
 
 type FinalizeSummaryProps = {
@@ -16,15 +17,6 @@ const saleDateFormatter = new Intl.DateTimeFormat('pt-BR', {
 export function FinalizeSummary({ sale, onStartNewSale }: FinalizeSummaryProps) {
   const [paperSize, setPaperSize] = useState<ReceiptPaperSize>('80mm');
   const changeInCents = sumMoney(sale.payments.map((payment) => payment.changeInCents ?? 0));
-
-  function printReceipt() {
-    document.body.classList.add('printing-receipt');
-    try {
-      window.print();
-    } finally {
-      document.body.classList.remove('printing-receipt');
-    }
-  }
 
   return (
     <div className="overlay success-overlay">
@@ -58,7 +50,7 @@ export function FinalizeSummary({ sale, onStartNewSale }: FinalizeSummaryProps) 
           </div>
           <Receipt paperSize={paperSize} sale={sale} />
           <div className="successactions">
-            <button className="btn secondary" onClick={printReceipt} type="button">▤ Imprimir comprovante</button>
+            <button className="btn secondary" onClick={printCurrentReceipt} type="button">▤ Imprimir comprovante</button>
             <button className="btn primary" onClick={onStartNewSale} type="button">＋ Nova venda</button>
           </div>
         </div>
