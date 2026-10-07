@@ -27,12 +27,14 @@ npm run build
 - Consultar vendas salvas no Histórico, com busca por número, filtros de período e pagamento, detalhes históricos e reimpressão.
 - Consultar no Início faturamento e pagamentos de hoje, última venda e vendas recentes.
 - Analisar faturamento, ticket médio, maior venda, tendências por período e divisão dos pagamentos em Relatórios.
+- Cadastrar, editar, pesquisar, filtrar, ativar e desativar produtos com persistência local; a Nova venda usa o catálogo atualizado.
 
-O catálogo atual é demonstrativo e definido em `src/data/products.ts`. O rascunho e as vendas concluídas ficam em chaves distintas do `localStorage` no computador/navegador em uso. O app não solicita serviços externos em tempo de execução e usa Segoe UI do sistema para funcionar sem baixar fontes.
+Os produtos demonstrativos de `src/data/products.ts` são copiados para o catálogo persistente na primeira execução. Produtos, rascunho do carrinho e vendas concluídas ficam em chaves distintas do `localStorage` no computador/navegador em uso. O app não solicita serviços externos em tempo de execução e usa Segoe UI do sistema para funcionar sem baixar fontes.
 
 ## Referências de design
 
 - `outputs/index.html`: protótipo navegável original.
 - `outputs/Direcao-visual.md`: identidade visual, componentes e recomendações de UX.
 
-Os dados de Início e Relatórios vêm exclusivamente das vendas concluídas salvas localmente. Estoque, cadastro de produtos, clientes, cancelamento e os demais módulos do protótipo ainda não estão implementados.
+Os dados de Início e Relatórios vêm exclusivamente das vendas concluídas salvas localmente. Estoque, clientes, cancelamento e os demais módulos do protótipo ainda não estão implementados.
+
