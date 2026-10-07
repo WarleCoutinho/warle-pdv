@@ -6,6 +6,7 @@ import { PosHeader } from '../components/PosHeader';
 import { ProductCatalog } from '../components/ProductCatalog';
 import { loadDraftCart, saveDraftCart } from '../services/cartStorage';
 import { saveCompletedSale } from '../services/saleStorage';
+import { getOpenCashSession, loadCashData } from '../services/cashStorage';
 import type { CartItem, Product } from '../types/product';
 import type { SalePayment } from '../types/payment';
 import type { Sale } from '../types/sale';
@@ -51,9 +52,10 @@ type PosPageProps = {
   onNavigate: (page: AppPage) => void;
   products: Product[];
   settings: StoreSettings;
+  cashSessionId?: string;
 };
 
-export function PosPage({ onNavigate, products, settings }: PosPageProps) {
+export function PosPage({ onNavigate, products, settings, cashSessionId }: PosPageProps) {
   const finalizingSale = useRef(false);
   const [cart, dispatch] = useReducer(cartReducer, products, loadDraftCart);
   const [search, setSearch] = useState('');
@@ -109,12 +111,17 @@ export function PosPage({ onNavigate, products, settings }: PosPageProps) {
   }
 
   function finalizePayment() {
-    if (finalizingSale.current || cart.length === 0 || payments.length === 0) return;
+    if (!cashSessionId || finalizingSale.current || cart.length === 0 || payments.length === 0) return;
+    const persistedOpenSession = getOpenCashSession(loadCashData());
+    if (!persistedOpenSession || persistedOpenSession.id !== cashSessionId) {
+      setPaymentError('O caixa foi fechado ou trocado. Abra o caixa novamente antes de concluir a venda.');
+      return;
+    }
     if (calculatePaymentTotals(totalInCents, payments).pendingInCents !== 0) return;
     finalizingSale.current = true;
     setPaymentError(null);
     try {
-      const sale = saveCompletedSale(cart, totalInCents, payments);
+      const sale = saveCompletedSale(cart, totalInCents, payments, cashSessionId);
       saveDraftCart([]);
       setCompletedSale(sale);
       setShowPayment(false);
@@ -122,13 +129,19 @@ export function PosPage({ onNavigate, products, settings }: PosPageProps) {
       dispatch({ type: 'clear' });
     } catch (error) {
       finalizingSale.current = false;
-      setPaymentError(error instanceof Error && error.message.startsWith('Os dados das vendas salvas')
+      setPaymentError(error instanceof Error && (error.message.startsWith('Os dados das vendas salvas') || error.message.startsWith('Abra um caixa'))
         ? error.message
         : 'Não foi possível salvar a venda. A venda não foi concluída. Verifique o armazenamento local e tente novamente.');
     }
   }
 
   return (
+    !cashSessionId ? <main className="content cash-blocked-content">
+      <div className="cash-closed-card"><span aria-hidden="true" className="cash-state-icon">◷</span><h1>Caixa fechado</h1>
+        <p>O caixa está fechado. Abra o caixa antes de iniciar uma venda.</p>
+        <button className="btn primary" onClick={() => onNavigate('cash')} type="button">Abrir caixa</button>
+      </div>
+    </main> :
     <div className="shell pos-shell">
       <div className="main pos-main">
         <main className="content pos-content">
@@ -182,4 +195,3 @@ export function PosPage({ onNavigate, products, settings }: PosPageProps) {
     </div>
   );
 }
-

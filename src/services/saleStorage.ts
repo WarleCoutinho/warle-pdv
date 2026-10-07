@@ -30,7 +30,8 @@ export function clearStoredSales(): void {
   localStorage.removeItem(SALES_STORAGE_KEY);
 }
 
-export function saveCompletedSale(items: CartItem[], totalInCents: number, payments: SalePayment[]): Sale {
+export function saveCompletedSale(items: CartItem[], totalInCents: number, payments: SalePayment[], cashSessionId: string): Sale {
+  if (!cashSessionId) throw new Error('Abra um caixa antes de concluir a venda.');
   const sales = listSales();
   const number = sales.reduce((max, sale) => Math.max(max, sale.number), 0) + 1;
   if (!Number.isSafeInteger(number)) throw new Error('Não foi possível gerar o número da venda.');
@@ -39,6 +40,7 @@ export function saveCompletedSale(items: CartItem[], totalInCents: number, payme
     id: createSaleId(),
     number,
     date: new Date().toISOString(),
+    cashSessionId,
     items: items.map(toSaleItem),
     totalInCents,
     payments: payments.map((payment) => ({ ...payment })),
@@ -71,7 +73,8 @@ function isSale(value: unknown): value is Sale {
     || typeof sale.date !== 'string' || !Number.isFinite(Date.parse(sale.date))
     || !Number.isSafeInteger(sale.totalInCents) || Number(sale.totalInCents) < 0
     || !Array.isArray(sale.items) || !sale.items.every(isSaleItem)
-    || !Array.isArray(sale.payments) || !sale.payments.every(isSalePayment)) return false;
+    || !Array.isArray(sale.payments) || !sale.payments.every(isSalePayment)
+    || (sale.cashSessionId !== undefined && (typeof sale.cashSessionId !== 'string' || !sale.cashSessionId))) return false;
 
   try {
     const itemTotal = sumMoney((sale.items as SaleItem[]).map((item) => item.subtotalInCents));
@@ -112,4 +115,3 @@ function createSaleId(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
   return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
-

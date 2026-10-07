@@ -10,6 +10,7 @@ const pages: { id: AppPage; label: string }[] = [
   { id: 'pos', label: 'Nova venda' },
   { id: 'products', label: 'Produtos' },
   { id: 'history', label: 'Histórico' },
+  { id: 'cash', label: 'Caixa' },
   { id: 'reports', label: 'Relatórios' },
   { id: 'settings', label: 'Configurações' },
 ];
@@ -31,4 +32,3 @@ export function PageNavigation({ activePage, onNavigate }: PageNavigationProps) 
     </nav>
   );
 }
-

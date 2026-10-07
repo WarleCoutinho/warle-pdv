@@ -7,15 +7,18 @@ import { formatMoney } from '../utils/money';
 import { filterSalesByPeriod, getPaymentTotals, getSalesMetrics, sortSalesMostRecent } from '../utils/salesAnalytics';
 import { paymentMethodLabels } from '../types/payment';
 import { usePersistedSales } from '../hooks/usePersistedSales';
+import type { CashData } from '../types/cash';
+import { getCashSummary } from '../utils/cash';
 
 type DashboardPageProps = {
   onNavigate: (page: AppPage) => void;
+  cashData: CashData;
 };
 
 const dateFormatter = new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' });
 const timeFormatter = new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
 
-export function DashboardPage({ onNavigate }: DashboardPageProps) {
+export function DashboardPage({ onNavigate, cashData }: DashboardPageProps) {
   const { sales, loading, error } = usePersistedSales();
   const referenceDate = useMemo(() => new Date(), []);
   const todaySales = useMemo(() => filterSalesByPeriod(sales, 'today', referenceDate), [sales, referenceDate]);
@@ -23,6 +26,8 @@ export function DashboardPage({ onNavigate }: DashboardPageProps) {
   const allMetrics = useMemo(() => getSalesMetrics(sales), [sales]);
   const recentSales = useMemo(() => sortSalesMostRecent(sales).slice(0, 5), [sales]);
   const paymentTotals = useMemo(() => getPaymentTotals(todaySales), [todaySales]);
+  const openCash = cashData.sessions.find((session) => session.status === 'open');
+  const cashSummary = openCash ? getCashSummary(openCash, cashData.movements, sales) : null;
 
   return (
     <main className="content analytics-content">
@@ -34,6 +39,10 @@ export function DashboardPage({ onNavigate }: DashboardPageProps) {
         </div>
         <button className="btn primary dashboard-cta" onClick={() => onNavigate('pos')} type="button">＋ Nova venda</button>
       </div>
+
+      {openCash && cashSummary && <button className="dashboard-cash-indicator" onClick={() => onNavigate('cash')} type="button">
+        <span><i /> Caixa aberto</span><b>Saldo esperado: {formatMoney(cashSummary.expectedInCents)}</b><small>Dinheiro físico · ver controle do caixa →</small>
+      </button>}
 
       {error ? <div className="analytics-error" role="alert">{error}</div> : loading ? (
         <div className="analytics-loading" role="status">Carregando vendas salvas...</div>
