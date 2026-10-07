@@ -231,6 +231,40 @@ body.pos-mode .analytics-content{max-width:1420px;padding:22px 32px}
   .period-tabs{max-width:100%;overflow-x:auto}
   .period-tabs button{padding:8px 9px;font-size:11px}
 }
+
+/* Product management */
+.products-content{max-width:1420px}
+.products-title-row{align-items:center;margin-bottom:22px}
+.products-toolbar{display:grid;grid-template-columns:minmax(220px,1fr) minmax(170px,230px) minmax(140px,180px);gap:14px;align-items:end;margin-bottom:16px;padding:17px;background:#fff;border:1px solid var(--line);border-radius:13px}
+.products-toolbar label,.product-field{display:grid;gap:7px;color:#394941;font-size:12px;font-weight:700}
+.products-toolbar input,.products-toolbar select,.product-field>input,.product-price-input{width:100%;height:42px;padding:0 12px;border:1px solid #cbd6ce;border-radius:9px;background:#f7f9f7;color:var(--ink);font-weight:400}
+.products-toolbar input:focus,.products-toolbar select:focus,.product-field input:focus{outline:3px solid #74b991;outline-offset:1px}
+.products-table-panel{overflow:hidden;border:1px solid var(--line);border-radius:13px;background:#fff;box-shadow:var(--shadow)}
+.products-table-scroll{overflow-x:auto}
+.products-table{width:100%;border-collapse:collapse;text-align:left;white-space:nowrap}
+.products-table th{padding:14px 18px;background:#f5f8f6;color:#65736b;font-size:11px;letter-spacing:.35px;text-transform:uppercase}
+.products-table td{padding:15px 18px;border-top:1px solid #edf0ed;color:#526057}
+.products-name{display:flex;align-items:center;gap:10px;color:var(--ink)}
+.products-name>span{display:grid;width:34px;height:34px;place-items:center;border-radius:9px;background:#edf3ee;font-size:19px}
+.products-price{font-weight:800;color:#185b43!important}
+.products-status{display:inline-flex;align-items:center;gap:6px;padding:5px 9px;border-radius:20px;font-size:11px;font-weight:800}
+.products-status:before{width:6px;height:6px;border-radius:50%;content:""}
+.products-status.is-active{background:#e7f3eb;color:#216545}.products-status.is-active:before{background:#308455}
+.products-status.is-inactive{background:#f0f1ef;color:#6d756f}.products-status.is-inactive:before{background:#929a94}
+.products-actions{display:flex;gap:8px}
+.products-action{padding:7px 10px;border-radius:7px;background:#e8f4ee;color:var(--green);font-size:12px;font-weight:700}
+.products-action:hover{background:#d9eee2}.products-action.muted{background:transparent;color:#6b7770}.products-action.muted:hover{background:#f2f4f2}
+.products-empty{display:grid;gap:6px;justify-items:center;padding:55px 20px;color:#607067;text-align:center}
+.products-empty b{color:#263a30;font-size:15px}.products-error{margin:0 0 14px;padding:12px 15px;border:1px solid #efc2bd;border-radius:9px;background:#fff1ef;color:#a83f37}
+.product-form-modal{max-width:520px}.product-form-body{display:grid;gap:17px}
+.product-field>input{font-size:14px}
+.product-field small{color:var(--red);font-size:12px;font-weight:600}
+.product-price-input{display:flex;align-items:center;gap:9px;padding:0 12px;background:#fff}
+.product-price-input>span{color:#748078;font-size:13px}
+.product-price-input input{width:100%;height:38px;border:0;background:transparent;color:var(--ink);outline:none;font-variant-numeric:tabular-nums}
+.product-active-field{display:flex;align-items:center;gap:9px;color:#394941;font-weight:700}
+.product-active-field input{width:17px;height:17px;accent-color:var(--green)}
+@media(max-width:760px){.products-content{padding:14px}.products-title-row{align-items:flex-start;gap:12px}.products-title-row>.btn{padding:10px;font-size:12px;white-space:nowrap}.products-toolbar{grid-template-columns:1fr;gap:11px;padding:13px}.products-table th,.products-table td{padding:13px 12px}.products-actions{flex-direction:column;gap:4px}.product-form-modal{max-height:calc(100vh - 22px);overflow:auto;border-radius:14px}}
 @media(max-width:760px){
   .history-content{padding:14px}
   body.pos-mode .history-content{padding:14px}
@@ -260,3 +294,4 @@ body.pos-mode .analytics-content{max-width:1420px;padding:22px 32px}
 @media print{
   body.printing-receipt #root .history-detail-modal>.modalhead{display:none!important}
 }
+
