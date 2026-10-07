@@ -1,18 +1,19 @@
 import type { CartItem } from '../types/product';
-import type { PaymentMethod } from '../types/payment';
+import type { SalePayment } from '../types/payment';
 import { paymentMethodLabels } from '../types/payment';
 import { formatMoney } from '../utils/money';
+import { sumMoney } from '../utils/money';
 
 type FinalizeSummaryProps = {
   items: CartItem[];
   totalInCents: number;
-  method: PaymentMethod;
-  changeInCents: number;
+  payments: SalePayment[];
   onStartNewSale: () => void;
   onClose: () => void;
 };
 
-export function FinalizeSummary({ items, totalInCents, method, changeInCents, onStartNewSale, onClose }: FinalizeSummaryProps) {
+export function FinalizeSummary({ items, totalInCents, payments, onStartNewSale, onClose }: FinalizeSummaryProps) {
+  const changeInCents = sumMoney(payments.map((payment) => payment.changeInCents ?? 0));
   return (
     <div className="overlay" onClick={(event) => event.target === event.currentTarget && onClose()}>
       <section
@@ -37,7 +38,15 @@ export function FinalizeSummary({ items, totalInCents, method, changeInCents, on
             <span>Total</span>
             <b>{formatMoney(totalInCents)}</b>
           </div>
-          <div className="finalize-payment"><span>Pagamento</span><b>{paymentMethodLabels[method]}</b></div>
+          <div className="finalize-payments">
+            <b>Pagamentos</b>
+            {payments.map((payment, index) => (
+              <div className="finalize-payment" key={`${payment.method}-${index}`}>
+                <span>{paymentMethodLabels[payment.method]}</span>
+                <b>{formatMoney(payment.amountInCents)}</b>
+              </div>
+            ))}
+          </div>
           <div className="finalize-payment"><span>Troco</span><b>{formatMoney(changeInCents)}</b></div>
           <div className="successactions">
             <button className="btn secondary" onClick={onClose} type="button">Fechar resumo</button>
