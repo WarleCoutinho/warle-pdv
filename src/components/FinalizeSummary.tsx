@@ -1,14 +1,18 @@
 import type { CartItem } from '../types/product';
+import type { PaymentMethod } from '../types/payment';
+import { paymentMethodLabels } from '../types/payment';
 import { formatMoney } from '../utils/money';
 
 type FinalizeSummaryProps = {
   items: CartItem[];
   totalInCents: number;
+  method: PaymentMethod;
+  changeInCents: number;
   onStartNewSale: () => void;
   onClose: () => void;
 };
 
-export function FinalizeSummary({ items, totalInCents, onStartNewSale, onClose }: FinalizeSummaryProps) {
+export function FinalizeSummary({ items, totalInCents, method, changeInCents, onStartNewSale, onClose }: FinalizeSummaryProps) {
   return (
     <div className="overlay" onClick={(event) => event.target === event.currentTarget && onClose()}>
       <section
@@ -19,8 +23,8 @@ export function FinalizeSummary({ items, totalInCents, onStartNewSale, onClose }
       >
         <div className="success">
           <div className="successicon" aria-hidden="true">✓</div>
-          <h2 id="finalize-title">Resumo da venda</h2>
-          <p className="sub">O fluxo foi finalizado. Esta venda ainda não foi salva.</p>
+          <h2 id="finalize-title">Venda concluída</h2>
+          <p className="sub">Pagamento confirmado. Esta venda ainda não foi salva.</p>
           <div className="finalize-lines">
             {items.map((item) => (
               <div className="payrow" key={item.product.id}>
@@ -33,6 +37,8 @@ export function FinalizeSummary({ items, totalInCents, onStartNewSale, onClose }
             <span>Total</span>
             <b>{formatMoney(totalInCents)}</b>
           </div>
+          <div className="finalize-payment"><span>Pagamento</span><b>{paymentMethodLabels[method]}</b></div>
+          <div className="finalize-payment"><span>Troco</span><b>{formatMoney(changeInCents)}</b></div>
           <div className="successactions">
             <button className="btn secondary" onClick={onClose} type="button">Voltar ao carrinho</button>
             <button className="btn primary" onClick={onStartNewSale} type="button">＋ Nova venda</button>
