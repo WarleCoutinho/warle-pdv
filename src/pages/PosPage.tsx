@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useReducer, useState } from 'react';
 import { CartPanel } from '../components/CartPanel';
 import { FinalizeSummary } from '../components/FinalizeSummary';
+import { PaymentModal } from '../components/PaymentModal';
 import { PosHeader } from '../components/PosHeader';
 import { ProductCatalog } from '../components/ProductCatalog';
 import { products } from '../data/products';
 import { loadDraftCart, saveDraftCart } from '../services/cartStorage';
 import type { CartItem, Product } from '../types/product';
+import type { PaymentMethod } from '../types/payment';
 import { changeCartItemQuantity, createCartItem } from '../utils/cart';
 import { sumMoney } from '../utils/money';
 
@@ -45,7 +47,10 @@ export function PosPage() {
   const [cart, dispatch] = useReducer(cartReducer, products, loadDraftCart);
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState('Todos');
-  const [showFinalizeSummary, setShowFinalizeSummary] = useState(false);
+  const [showPayment, setShowPayment] = useState(false);
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('cash');
+  const [received, setReceived] = useState('');
+  const [completedSale, setCompletedSale] = useState<{ items: CartItem[]; totalInCents: number; method: PaymentMethod; changeInCents: number } | null>(null);
 
   const categories = useMemo(
     () => ['Todos', ...new Set(products.filter((product) => product.active).map((product) => product.category))],
@@ -67,9 +72,24 @@ export function PosPage() {
 
   function startNewSale() {
     dispatch({ type: 'clear' });
-    setShowFinalizeSummary(false);
+    setCompletedSale(null);
+    setShowPayment(false);
     setSearch('');
     setCategory('Todos');
+  }
+
+  function openPayment() {
+    if (cart.length === 0) return;
+    setPaymentMethod('cash');
+    setReceived('');
+    setShowPayment(true);
+  }
+
+  function confirmPayment(changeInCents: number) {
+    if (cart.length === 0) return;
+    setCompletedSale({ items: cart, totalInCents, method: paymentMethod, changeInCents });
+    setShowPayment(false);
+    dispatch({ type: 'clear' });
   }
 
   return (
@@ -97,7 +117,7 @@ export function PosPage() {
             <CartPanel
               items={cart}
               onDecrement={(productId) => dispatch({ type: 'decrement', productId })}
-              onFinalize={() => setShowFinalizeSummary(true)}
+              onFinalize={openPayment}
               onIncrement={(productId) => dispatch({ type: 'increment', productId })}
               onRemove={(productId) => dispatch({ type: 'remove', productId })}
               totalInCents={totalInCents}
@@ -105,12 +125,25 @@ export function PosPage() {
           </div>
         </main>
       </div>
-      {showFinalizeSummary && (
-        <FinalizeSummary
-          items={cart}
-          onClose={() => setShowFinalizeSummary(false)}
-          onStartNewSale={startNewSale}
+      {showPayment && (
+        <PaymentModal
+          method={paymentMethod}
+          onClose={() => setShowPayment(false)}
+          onConfirm={confirmPayment}
+          onMethodChange={setPaymentMethod}
+          onReceivedChange={setReceived}
+          received={received}
           totalInCents={totalInCents}
+        />
+      )}
+      {completedSale && (
+        <FinalizeSummary
+          changeInCents={completedSale.changeInCents}
+          items={completedSale.items}
+          method={completedSale.method}
+          onClose={() => setCompletedSale(null)}
+          onStartNewSale={startNewSale}
+          totalInCents={completedSale.totalInCents}
         />
       )}
     </div>
