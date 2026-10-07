@@ -7,9 +7,10 @@ import { ProductCatalog } from '../components/ProductCatalog';
 import { products } from '../data/products';
 import { loadDraftCart, saveDraftCart } from '../services/cartStorage';
 import type { CartItem, Product } from '../types/product';
-import type { PaymentMethod } from '../types/payment';
+import type { SalePayment } from '../types/payment';
 import { changeCartItemQuantity, createCartItem } from '../utils/cart';
-import { parseMoneyInput, sumMoney } from '../utils/money';
+import { sumMoney } from '../utils/money';
+import { calculatePaymentTotals, createSalePayment } from '../utils/payments';
 
 type CartAction =
   | { type: 'add'; product: Product }
@@ -48,9 +49,8 @@ export function PosPage() {
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState('Todos');
   const [showPayment, setShowPayment] = useState(false);
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('cash');
-  const [received, setReceived] = useState('');
-  const [completedSale, setCompletedSale] = useState<{ items: CartItem[]; totalInCents: number; method: PaymentMethod; changeInCents: number } | null>(null);
+  const [payments, setPayments] = useState<SalePayment[]>([]);
+  const [completedSale, setCompletedSale] = useState<{ items: CartItem[]; totalInCents: number; payments: SalePayment[] } | null>(null);
 
   const categories = useMemo(
     () => ['Todos', ...new Set(products.filter((product) => product.active).map((product) => product.category))],
@@ -72,6 +72,7 @@ export function PosPage() {
 
   function startNewSale() {
     dispatch({ type: 'clear' });
+    setPayments([]);
     setCompletedSale(null);
     setShowPayment(false);
     setSearch('');
@@ -80,18 +81,25 @@ export function PosPage() {
 
   function openPayment() {
     if (cart.length === 0) return;
-    setPaymentMethod('cash');
-    setReceived('');
     setShowPayment(true);
   }
 
-  function confirmPayment() {
-    if (cart.length === 0) return;
-    const receivedInCents = paymentMethod === 'cash' ? parseMoneyInput(received) : totalInCents;
-    if (receivedInCents === null || receivedInCents < totalInCents) return;
-    const changeInCents = paymentMethod === 'cash' ? receivedInCents - totalInCents : 0;
-    setCompletedSale({ items: cart, totalInCents, method: paymentMethod, changeInCents });
+  function addPayment(payment: SalePayment) {
+    const { pendingInCents } = calculatePaymentTotals(totalInCents, payments);
+    const enteredInCents = payment.method === 'cash'
+      ? payment.amountReceivedInCents ?? 0
+      : payment.amountInCents;
+    const validatedPayment = createSalePayment(payment.method, enteredInCents, pendingInCents);
+    if (!validatedPayment) return;
+    setPayments((current) => [...current, validatedPayment]);
+  }
+
+  function finalizePayment() {
+    if (cart.length === 0 || payments.length === 0) return;
+    if (calculatePaymentTotals(totalInCents, payments).pendingInCents !== 0) return;
+    setCompletedSale({ items: cart, totalInCents, payments });
     setShowPayment(false);
+    setPayments([]);
     dispatch({ type: 'clear' });
   }
 
@@ -130,20 +138,18 @@ export function PosPage() {
       </div>
       {showPayment && (
         <PaymentModal
-          method={paymentMethod}
+          onAddPayment={addPayment}
           onClose={() => setShowPayment(false)}
-          onConfirm={confirmPayment}
-          onMethodChange={setPaymentMethod}
-          onReceivedChange={setReceived}
-          received={received}
+          onFinalize={finalizePayment}
+          onRemovePayment={(index) => setPayments((current) => current.filter((_, paymentIndex) => paymentIndex !== index))}
+          payments={payments}
           totalInCents={totalInCents}
         />
       )}
       {completedSale && (
         <FinalizeSummary
-          changeInCents={completedSale.changeInCents}
           items={completedSale.items}
-          method={completedSale.method}
+          payments={completedSale.payments}
           onClose={() => setCompletedSale(null)}
           onStartNewSale={startNewSale}
           totalInCents={completedSale.totalInCents}
