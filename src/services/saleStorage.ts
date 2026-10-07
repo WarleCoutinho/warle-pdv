@@ -26,6 +26,10 @@ export function getSaleById(id: string): Sale | undefined {
   return listSales().find((sale) => sale.id === id);
 }
 
+export function clearStoredSales(): void {
+  localStorage.removeItem(SALES_STORAGE_KEY);
+}
+
 export function saveCompletedSale(items: CartItem[], totalInCents: number, payments: SalePayment[]): Sale {
   const sales = listSales();
   const number = sales.reduce((max, sale) => Math.max(max, sale.number), 0) + 1;
@@ -108,3 +112,4 @@ function createSaleId(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
   return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
+
