@@ -9,7 +9,7 @@ import { loadDraftCart, saveDraftCart } from '../services/cartStorage';
 import type { CartItem, Product } from '../types/product';
 import type { PaymentMethod } from '../types/payment';
 import { changeCartItemQuantity, createCartItem } from '../utils/cart';
-import { sumMoney } from '../utils/money';
+import { parseMoneyInput, sumMoney } from '../utils/money';
 
 type CartAction =
   | { type: 'add'; product: Product }
@@ -85,8 +85,11 @@ export function PosPage() {
     setShowPayment(true);
   }
 
-  function confirmPayment(changeInCents: number) {
+  function confirmPayment() {
     if (cart.length === 0) return;
+    const receivedInCents = paymentMethod === 'cash' ? parseMoneyInput(received) : totalInCents;
+    if (receivedInCents === null || receivedInCents < totalInCents) return;
+    const changeInCents = paymentMethod === 'cash' ? receivedInCents - totalInCents : 0;
     setCompletedSale({ items: cart, totalInCents, method: paymentMethod, changeInCents });
     setShowPayment(false);
     dispatch({ type: 'clear' });
