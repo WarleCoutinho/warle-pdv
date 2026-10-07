@@ -40,7 +40,7 @@ export function FinalizeSummary({ items, totalInCents, method, changeInCents, on
           <div className="finalize-payment"><span>Pagamento</span><b>{paymentMethodLabels[method]}</b></div>
           <div className="finalize-payment"><span>Troco</span><b>{formatMoney(changeInCents)}</b></div>
           <div className="successactions">
-            <button className="btn secondary" onClick={onClose} type="button">Voltar ao carrinho</button>
+            <button className="btn secondary" onClick={onClose} type="button">Fechar resumo</button>
             <button className="btn primary" onClick={onStartNewSale} type="button">＋ Nova venda</button>
           </div>
         </div>
