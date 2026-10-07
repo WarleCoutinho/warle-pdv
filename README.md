@@ -22,14 +22,14 @@ npm run build
 - Calcular subtotal e total usando valores inteiros em centavos.
 - Salvar localmente o rascunho atual do carrinho no navegador para recuperação após recarga.
 - Combinar pagamentos em dinheiro, Pix, débito e crédito; em dinheiro, validar o valor recebido e calcular troco em centavos.
-- Exibir o resumo da venda concluída sem persistir a venda definitiva.
+- Persistir vendas concluídas localmente com número sequencial e snapshot de itens e pagamentos.
+- Exibir comprovante e imprimir em papel térmico de 58/80 mm ou em A4.
 
-O catálogo atual é demonstrativo e definido em `src/data/products.ts`. O rascunho do carrinho fica em `localStorage` no computador/navegador em uso; vendas concluídas não são salvas. O app não solicita serviços externos em tempo de execução e usa Segoe UI do sistema para funcionar sem baixar fontes.
+O catálogo atual é demonstrativo e definido em `src/data/products.ts`. O rascunho e as vendas concluídas ficam em chaves distintas do `localStorage` no computador/navegador em uso. O app não solicita serviços externos em tempo de execução e usa Segoe UI do sistema para funcionar sem baixar fontes.
 
 ## Referências de design
 
 - `outputs/index.html`: protótipo navegável original.
 - `outputs/Direcao-visual.md`: identidade visual, componentes e recomendações de UX.
 
-Persistência definitiva de vendas, histórico, estoque, cadastro de produtos e os demais módulos do protótipo ainda não estão implementados.
-
+Histórico, estoque, cadastro de produtos e os demais módulos do protótipo ainda não estão implementados.
