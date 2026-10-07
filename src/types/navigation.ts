@@ -1,2 +1,2 @@
-export type AppPage = 'home' | 'pos' | 'products' | 'history' | 'reports';
+export type AppPage = 'home' | 'pos' | 'products' | 'history' | 'reports' | 'settings';
 
