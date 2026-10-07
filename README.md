@@ -1,23 +1,34 @@
 # Raiz — PDV
 
-Protótipo visual navegável de um ponto de venda local para um pequeno negócio de alimentação.
+Aplicação local para ponto de venda de um pequeno negócio de alimentação. A implementação atual inicia pelo fluxo de nova venda e mantém o protótipo visual original em `outputs/` como referência.
 
-## Abrir a prévia
+## Executar localmente
 
-Abra `outputs/index.html` em um navegador. A interface é demonstrativa: os dados ficam apenas na memória da página, sem banco de dados ou integração de impressão.
+```bash
+npm install
+npm run dev
+```
 
-## Telas incluídas
+## Verificar a compilação
 
-- Início com resumo e vendas recentes
-- Nova venda em tela cheia, com busca, categorias e carrinho
-- Pagamento com cálculo demonstrativo de troco
-- Confirmação e prévia de comprovante
-- Histórico, relatórios e gestão de produtos
-- Configurações básicas
+```bash
+npm run build
+```
 
-Consulte `outputs/Direcao-visual.md` para o sistema visual, hierarquia, fluxo e recomendações de UX.
+## Funcionalidade implementada
 
-## Próxima etapa
+- Buscar produtos locais e filtrar por categoria.
+- Adicionar produtos ao carrinho, alterar quantidades e remover itens.
+- Calcular subtotal e total usando valores inteiros em centavos.
+- Salvar localmente o rascunho atual do carrinho no navegador para recuperação após recarga.
+- Exibir um resumo ao finalizar; nenhuma venda concluída é persistida nesta etapa.
 
-A implementação planejada poderá usar React, TypeScript e Vite, com persistência local/offline. O protótipo atual não implementa essas partes.
+O catálogo atual é demonstrativo e definido em `src/data/products.ts`. O rascunho do carrinho fica em `localStorage` no computador/navegador em uso; vendas concluídas não são salvas. O app não solicita serviços externos em tempo de execução e usa Segoe UI do sistema para funcionar sem baixar fontes.
+
+## Referências de design
+
+- `outputs/index.html`: protótipo navegável original.
+- `outputs/Direcao-visual.md`: identidade visual, componentes e recomendações de UX.
+
+Estoque, pagamentos, cadastro de produtos, persistência de vendas e os demais módulos do protótipo ainda não estão implementados.
 

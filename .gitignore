@@ -2,6 +2,7 @@
 node_modules/
 dist/
 coverage/
+work/npm-cache/
 
 # Arquivos locais e segredos
 .env
