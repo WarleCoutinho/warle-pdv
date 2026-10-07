@@ -11,6 +11,7 @@ const pages: { id: AppPage; label: string }[] = [
   { id: 'products', label: 'Produtos' },
   { id: 'history', label: 'Histórico' },
   { id: 'reports', label: 'Relatórios' },
+  { id: 'settings', label: 'Configurações' },
 ];
 
 export function PageNavigation({ activePage, onNavigate }: PageNavigationProps) {
