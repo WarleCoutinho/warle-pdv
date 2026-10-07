@@ -42,4 +42,49 @@ body.pos-mode .side{display:none}body.pos-mode .main{margin-left:0;width:100%}bo
 .finalize-payments{margin:18px 0 0;text-align:left}
 .finalize-payments>.finalize-payment{padding-left:0;padding-right:0}
 @media(max-width:760px){.payment-modal{max-height:calc(100vh - 20px)}.payment-item{grid-template-columns:minmax(0,1fr) auto}.remove-payment{grid-column:1/-1;justify-self:start;padding:0}.payment-balance{gap:8px;padding:12px}}
-
+.receipt-controls{display:flex;justify-content:flex-end;align-items:center;gap:8px;margin:14px 0 8px;font-size:12px;color:var(--muted)}
+.receipt-controls select{border:1px solid var(--line);border-radius:8px;padding:8px 10px;background:#fff;color:var(--ink)}
+.sale-save-error{padding:12px 14px;margin:0 0 14px;border-radius:9px;background:#fff1ef;color:var(--red);font-weight:700}
+.finalize-sale-payments{margin:10px 0}
+.receipt-paper-58mm{max-width:280px}
+.receipt-paper-80mm{max-width:340px}
+.receipt-paper-a4{max-width:420px}
+.receipt{box-sizing:border-box;width:100%;border:1px dashed #ccd4cf}
+.receipt-header{text-align:center}
+.receipt-header h3{margin:0 0 4px}
+.receipt-header p{font-size:11px;margin:0 0 14px}
+.receipt-meta{display:grid;grid-template-columns:1fr auto;gap:5px 10px;font-size:11px}
+.receipt-meta div{display:flex;justify-content:space-between;gap:8px}
+.receipt hr{border:0;border-top:1px dashed #9ba69f;margin:12px 0}
+.receipt-item{margin:10px 0;font-size:11px;overflow-wrap:anywhere}
+.receipt-item>b{display:block;margin-bottom:4px}
+.receipt-item>div,.receipt-line,.receipt-total{display:flex;justify-content:space-between;gap:10px}
+.receipt-total{font-size:15px}
+.receipt-payments{margin-top:12px;font-size:11px}
+.receipt-section-title{display:block;margin-bottom:7px}
+.receipt-line{margin:5px 0}
+.receipt-cash-details{margin-top:9px;padding-top:7px;border-top:1px dotted #b4bcb7}
+.receipt-change{font-size:13px;font-weight:800;margin-top:8px}
+.receipt-thanks{text-align:center;margin:16px 0 0;font-size:11px}
+  @page receipt58{size:58mm 200mm;margin:2mm}
+  @page receipt80{size:80mm 200mm;margin:3mm}
+@page receiptA4{size:A4 portrait;margin:12mm}
+@media print{
+  body.printing-receipt{background:#fff!important}
+  body.printing-receipt #root>*{display:none!important}
+  body.printing-receipt #root .success-overlay{display:block!important;position:static!important;inset:auto!important;padding:0!important;background:transparent!important}
+  body.printing-receipt #root .success-overlay>.modal{display:block!important;width:100%!important;max-width:none!important;max-height:none!important;position:static!important;overflow:visible!important;border:0!important;border-radius:0!important;box-shadow:none!important;background:transparent!important}
+  body.printing-receipt #root .success-overlay .success>*:not(.print-root){display:none!important}
+  body.printing-receipt #root .print-root{display:block!important;position:static!important;box-sizing:border-box!important;margin:0 auto!important;border:0!important;background:#fff!important;overflow:visible!important;break-inside:avoid}
+  body.printing-receipt #root .receipt-paper-58mm{page:receipt58;width:54mm;max-width:54mm}
+  body.printing-receipt #root .receipt-paper-80mm{page:receipt80;width:74mm;max-width:74mm}
+  body.printing-receipt #root .receipt-paper-a4{page:receiptA4;width:90mm;max-width:90mm}
+  body.printing-receipt #root .receipt{width:100%;max-width:none;margin:0;padding:0;border:0;border-radius:0;box-shadow:none;color:#111;background:#fff}
+  body.printing-receipt #root .receipt *{visibility:visible!important}
+}
+@media print{
+  body.printing-receipt #root>*{display:block!important}
+  body.printing-receipt #root .shell>*{display:none!important}
+  body.printing-receipt #root .shell>.success-overlay{display:block!important}
+}
+.finalize-modal{max-height:calc(100vh - 28px);overflow:auto}
