@@ -28,6 +28,15 @@ export function sumMoney(amountsInCents: number[]): number {
   }, 0);
 }
 
+/** Parses a Brazilian currency input as integer centavos without float arithmetic. */
+export function parseMoneyInput(value: string): number | null {
+  const normalized = value.trim();
+  if (!normalized || !/^\d+(?:[.,]\d{0,2})?$/.test(normalized)) return null;
+  const [whole, fraction = ''] = normalized.replace(',', '.').split('.');
+  const cents = Number(whole) * 100 + Number(fraction.padEnd(2, '0'));
+  return Number.isSafeInteger(cents) ? cents : null;
+}
+
 function assertSafeCents(amountInCents: number): void {
   if (!Number.isSafeInteger(amountInCents) || amountInCents < 0) {
     throw new RangeError('O valor monetário deve ser um inteiro não negativo em centavos.');
