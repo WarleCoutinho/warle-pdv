@@ -8,6 +8,7 @@ type PageNavigationProps = {
 const pages: { id: AppPage; label: string }[] = [
   { id: 'home', label: 'Início' },
   { id: 'pos', label: 'Nova venda' },
+  { id: 'products', label: 'Produtos' },
   { id: 'history', label: 'Histórico' },
   { id: 'reports', label: 'Relatórios' },
 ];
@@ -29,3 +30,4 @@ export function PageNavigation({ activePage, onNavigate }: PageNavigationProps) 
     </nav>
   );
 }
+
