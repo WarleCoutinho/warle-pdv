@@ -9,6 +9,7 @@ import { saveCompletedSale } from '../services/saleStorage';
 import type { CartItem, Product } from '../types/product';
 import type { SalePayment } from '../types/payment';
 import type { Sale } from '../types/sale';
+import type { StoreSettings } from '../types/settings';
 import type { AppPage } from '../types/navigation';
 import { changeCartItemQuantity, createCartItem } from '../utils/cart';
 import { sumMoney } from '../utils/money';
@@ -49,9 +50,10 @@ function cartReducer(items: CartItem[], action: CartAction): CartItem[] {
 type PosPageProps = {
   onNavigate: (page: AppPage) => void;
   products: Product[];
+  settings: StoreSettings;
 };
 
-export function PosPage({ onNavigate, products }: PosPageProps) {
+export function PosPage({ onNavigate, products, settings }: PosPageProps) {
   const finalizingSale = useRef(false);
   const [cart, dispatch] = useReducer(cartReducer, products, loadDraftCart);
   const [search, setSearch] = useState('');
@@ -174,6 +176,7 @@ export function PosPage({ onNavigate, products }: PosPageProps) {
         <FinalizeSummary
           sale={completedSale}
           onStartNewSale={startNewSale}
+          settings={settings}
         />
       )}
     </div>
