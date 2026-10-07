@@ -1,13 +1,15 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Receipt, type ReceiptPaperSize } from '../components/Receipt';
+import { AppPageTopBar } from '../components/AppPageTopBar';
 import { paymentMethodLabels, type PaymentMethod } from '../types/payment';
+import type { AppPage } from '../types/navigation';
 import type { Sale } from '../types/sale';
 import { listSales } from '../services/saleStorage';
 import { formatMoney } from '../utils/money';
 import { printCurrentReceipt } from '../utils/printing';
 
 type HistoryPageProps = {
-  onBackToSale: () => void;
+  onNavigate: (page: AppPage) => void;
 };
 
 type PeriodFilter = 'today' | 'week' | 'month' | 'all';
@@ -19,7 +21,7 @@ const timeFormatter = new Intl.DateTimeFormat('pt-BR', {
   hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
 });
 
-export function HistoryPage({ onBackToSale }: HistoryPageProps) {
+export function HistoryPage({ onNavigate }: HistoryPageProps) {
   const [sales, setSales] = useState<Sale[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -64,14 +66,7 @@ export function HistoryPage({ onBackToSale }: HistoryPageProps) {
   return (
     <div className="shell history-shell">
       <main className="content history-content">
-        <header className="history-top">
-          <div className="pos-brand">
-            <span aria-hidden="true" className="logo">✳</span>
-            raiz
-            <span className="local-status">• &nbsp;<b>Operação local</b></span>
-          </div>
-          <button className="btn secondary" onClick={onBackToSale} type="button">← Voltar para nova venda</button>
-        </header>
+        <AppPageTopBar activePage="history" onNavigate={onNavigate} />
 
         <div className="title-row history-title-row">
           <div>
