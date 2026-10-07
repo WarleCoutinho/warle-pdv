@@ -1,6 +1,6 @@
 import type { Product } from '../types/product';
 
-/** Local sample catalog. Product management and persistence are future work. */
+/** Initial local catalog, copied into product storage on the first run. */
 export const products: Product[] = [
   { id: 'guarana-amazonia', name: 'Guaraná da Amazônia', priceInCents: 1000, category: 'Bebidas', active: true, emoji: '🥤' },
   { id: 'cremosinho', name: 'Cremosinho', priceInCents: 500, category: 'Lanches', active: true, emoji: '🍦' },
