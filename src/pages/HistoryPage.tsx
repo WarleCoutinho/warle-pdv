@@ -4,12 +4,14 @@ import { AppPageTopBar } from '../components/AppPageTopBar';
 import { paymentMethodLabels, type PaymentMethod } from '../types/payment';
 import type { AppPage } from '../types/navigation';
 import type { Sale } from '../types/sale';
+import type { StoreSettings } from '../types/settings';
 import { listSales } from '../services/saleStorage';
 import { formatMoney } from '../utils/money';
 import { printCurrentReceipt } from '../utils/printing';
 
 type HistoryPageProps = {
   onNavigate: (page: AppPage) => void;
+  settings: StoreSettings;
 };
 
 type PeriodFilter = 'today' | 'week' | 'month' | 'all';
@@ -21,7 +23,7 @@ const timeFormatter = new Intl.DateTimeFormat('pt-BR', {
   hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
 });
 
-export function HistoryPage({ onNavigate }: HistoryPageProps) {
+export function HistoryPage({ onNavigate, settings }: HistoryPageProps) {
   const [sales, setSales] = useState<Sale[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -143,7 +145,7 @@ export function HistoryPage({ onNavigate }: HistoryPageProps) {
       </main>
 
       {selectedSale && (
-        <SaleDetailsModal sale={selectedSale} onClose={() => setSelectedSale(null)} />
+        <SaleDetailsModal sale={selectedSale} onClose={() => setSelectedSale(null)} settings={settings} />
       )}
     </div>
   );
@@ -152,9 +154,10 @@ export function HistoryPage({ onNavigate }: HistoryPageProps) {
 type SaleDetailsModalProps = {
   sale: Sale;
   onClose: () => void;
+  settings: StoreSettings;
 };
 
-function SaleDetailsModal({ sale, onClose }: SaleDetailsModalProps) {
+function SaleDetailsModal({ sale, onClose, settings }: SaleDetailsModalProps) {
   const [paperSize, setPaperSize] = useState<ReceiptPaperSize>('80mm');
   const saleDate = new Date(sale.date);
 
@@ -211,7 +214,7 @@ function SaleDetailsModal({ sale, onClose }: SaleDetailsModalProps) {
               <option value="a4">Impressora comum (A4)</option>
             </select>
           </div>
-          <Receipt paperSize={paperSize} sale={sale} />
+          <Receipt paperSize={paperSize} sale={sale} settings={settings} />
           <div className="history-detail-actions">
             <button className="btn secondary" onClick={onClose} type="button">← Voltar ao histórico</button>
             <button className="btn primary" onClick={printCurrentReceipt} type="button">▤ Reimprimir comprovante</button>
@@ -239,3 +242,4 @@ function isSameLocalDay(left: Date, right: Date): boolean {
     && left.getMonth() === right.getMonth()
     && left.getDate() === right.getDate();
 }
+
