@@ -4,7 +4,6 @@ import { FinalizeSummary } from '../components/FinalizeSummary';
 import { PaymentModal } from '../components/PaymentModal';
 import { PosHeader } from '../components/PosHeader';
 import { ProductCatalog } from '../components/ProductCatalog';
-import { products } from '../data/products';
 import { loadDraftCart, saveDraftCart } from '../services/cartStorage';
 import { saveCompletedSale } from '../services/saleStorage';
 import type { CartItem, Product } from '../types/product';
@@ -49,9 +48,10 @@ function cartReducer(items: CartItem[], action: CartAction): CartItem[] {
 
 type PosPageProps = {
   onNavigate: (page: AppPage) => void;
+  products: Product[];
 };
 
-export function PosPage({ onNavigate }: PosPageProps) {
+export function PosPage({ onNavigate, products }: PosPageProps) {
   const finalizingSale = useRef(false);
   const [cart, dispatch] = useReducer(cartReducer, products, loadDraftCart);
   const [search, setSearch] = useState('');
@@ -143,7 +143,7 @@ export function PosPage({ onNavigate }: PosPageProps) {
               categories={categories}
               onCategoryChange={setCategory}
               onSearchChange={setSearch}
-              onSelectProduct={(product) => dispatch({ type: 'add', product })}
+              onSelectProduct={(product) => { if (product.active) dispatch({ type: 'add', product }); }}
               products={filteredProducts}
               search={search}
               selectedCategory={category}
@@ -179,3 +179,4 @@ export function PosPage({ onNavigate }: PosPageProps) {
     </div>
   );
 }
+
