@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { paymentMethodLabels } from '../types/payment';
 import type { Sale } from '../types/sale';
-import { formatMoney } from '../utils/money';
+import { formatMoney, sumMoney } from '../utils/money';
 import { Receipt, type ReceiptPaperSize } from './Receipt';
 
 type FinalizeSummaryProps = {
@@ -15,6 +15,7 @@ const saleDateFormatter = new Intl.DateTimeFormat('pt-BR', {
 
 export function FinalizeSummary({ sale, onStartNewSale }: FinalizeSummaryProps) {
   const [paperSize, setPaperSize] = useState<ReceiptPaperSize>('80mm');
+  const changeInCents = sumMoney(sale.payments.map((payment) => payment.changeInCents ?? 0));
 
   function printReceipt() {
     document.body.classList.add('printing-receipt');
@@ -32,6 +33,13 @@ export function FinalizeSummary({ sale, onStartNewSale }: FinalizeSummaryProps) 
           <div className="successicon" aria-hidden="true">✓</div>
           <h2 id="finalize-title">Venda concluída!</h2>
           <p className="sub">Venda #{String(sale.number).padStart(6, '0')} · {saleDateFormatter.format(new Date(sale.date))}</p>
+          {changeInCents > 0 && (
+            <div aria-label={`Troco a devolver: ${formatMoney(changeInCents)}`} className="change-highlight" role="status">
+              <span aria-hidden="true" className="change-highlight-icon">$</span>
+              <span className="change-highlight-label">Troco a devolver</span>
+              <strong>{formatMoney(changeInCents)}</strong>
+            </div>
+          )}
           <div className="finalize-total"><span>Total</span><b>{formatMoney(sale.totalInCents)}</b></div>
           <div className="finalize-sale-payments">
             {sale.payments.map((payment, index) => (
