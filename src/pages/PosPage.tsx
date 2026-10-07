@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useReducer, useState } from 'react';
+import { useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { CartPanel } from '../components/CartPanel';
 import { FinalizeSummary } from '../components/FinalizeSummary';
 import { PaymentModal } from '../components/PaymentModal';
@@ -6,8 +6,10 @@ import { PosHeader } from '../components/PosHeader';
 import { ProductCatalog } from '../components/ProductCatalog';
 import { products } from '../data/products';
 import { loadDraftCart, saveDraftCart } from '../services/cartStorage';
+import { saveCompletedSale } from '../services/saleStorage';
 import type { CartItem, Product } from '../types/product';
 import type { SalePayment } from '../types/payment';
+import type { Sale } from '../types/sale';
 import { changeCartItemQuantity, createCartItem } from '../utils/cart';
 import { sumMoney } from '../utils/money';
 import { calculatePaymentTotals, createSalePayment } from '../utils/payments';
@@ -45,12 +47,14 @@ function cartReducer(items: CartItem[], action: CartAction): CartItem[] {
 }
 
 export function PosPage() {
+  const finalizingSale = useRef(false);
   const [cart, dispatch] = useReducer(cartReducer, products, loadDraftCart);
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState('Todos');
   const [showPayment, setShowPayment] = useState(false);
   const [payments, setPayments] = useState<SalePayment[]>([]);
-  const [completedSale, setCompletedSale] = useState<{ items: CartItem[]; totalInCents: number; payments: SalePayment[] } | null>(null);
+  const [paymentError, setPaymentError] = useState<string | null>(null);
+  const [completedSale, setCompletedSale] = useState<Sale | null>(null);
 
   const categories = useMemo(
     () => ['Todos', ...new Set(products.filter((product) => product.active).map((product) => product.category))],
@@ -71,8 +75,10 @@ export function PosPage() {
   }, [cart]);
 
   function startNewSale() {
+    finalizingSale.current = false;
     dispatch({ type: 'clear' });
     setPayments([]);
+    setPaymentError(null);
     setCompletedSale(null);
     setShowPayment(false);
     setSearch('');
@@ -81,6 +87,7 @@ export function PosPage() {
 
   function openPayment() {
     if (cart.length === 0) return;
+    setPaymentError(null);
     setShowPayment(true);
   }
 
@@ -95,12 +102,23 @@ export function PosPage() {
   }
 
   function finalizePayment() {
-    if (cart.length === 0 || payments.length === 0) return;
+    if (finalizingSale.current || cart.length === 0 || payments.length === 0) return;
     if (calculatePaymentTotals(totalInCents, payments).pendingInCents !== 0) return;
-    setCompletedSale({ items: cart, totalInCents, payments });
-    setShowPayment(false);
-    setPayments([]);
-    dispatch({ type: 'clear' });
+    finalizingSale.current = true;
+    setPaymentError(null);
+    try {
+      const sale = saveCompletedSale(cart, totalInCents, payments);
+      saveDraftCart([]);
+      setCompletedSale(sale);
+      setShowPayment(false);
+      setPayments([]);
+      dispatch({ type: 'clear' });
+    } catch (error) {
+      finalizingSale.current = false;
+      setPaymentError(error instanceof Error && error.message.startsWith('Os dados das vendas salvas')
+        ? error.message
+        : 'Não foi possível salvar a venda. A venda não foi concluída. Verifique o armazenamento local e tente novamente.');
+    }
   }
 
   return (
@@ -142,20 +160,17 @@ export function PosPage() {
           onClose={() => setShowPayment(false)}
           onFinalize={finalizePayment}
           onRemovePayment={(index) => setPayments((current) => current.filter((_, paymentIndex) => paymentIndex !== index))}
+          errorMessage={paymentError}
           payments={payments}
           totalInCents={totalInCents}
         />
       )}
       {completedSale && (
         <FinalizeSummary
-          items={completedSale.items}
-          payments={completedSale.payments}
-          onClose={() => setCompletedSale(null)}
+          sale={completedSale}
           onStartNewSale={startNewSale}
-          totalInCents={completedSale.totalInCents}
         />
       )}
     </div>
   );
 }
-
