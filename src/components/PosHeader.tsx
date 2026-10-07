@@ -1,8 +1,11 @@
+import type { AppPage } from '../types/navigation';
+import { PageNavigation } from './PageNavigation';
+
 type PosHeaderProps = {
-  onOpenHistory: () => void;
+  onNavigate: (page: AppPage) => void;
 };
 
-export function PosHeader({ onOpenHistory }: PosHeaderProps) {
+export function PosHeader({ onNavigate }: PosHeaderProps) {
   return (
     <div className="pos-top">
       <div className="pos-brand">
@@ -10,7 +13,7 @@ export function PosHeader({ onOpenHistory }: PosHeaderProps) {
         raiz
         <span className="local-status">• &nbsp;<b>Operação local</b> · pronto para vender</span>
       </div>
-      <button className="history-shortcut" onClick={onOpenHistory} type="button">Histórico de vendas</button>
+      <PageNavigation activePage="pos" onNavigate={onNavigate} />
     </div>
   );
 }
