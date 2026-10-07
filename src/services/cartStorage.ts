@@ -51,6 +51,10 @@ export function saveDraftCart(items: CartItem[]): void {
   }
 }
 
+export function clearDraftCart(): void {
+  localStorage.removeItem(CART_STORAGE_KEY);
+}
+
 function isStoredCartItem(value: unknown): value is StoredCartItem {
   if (typeof value !== 'object' || value === null) return false;
   const item = value as Record<string, unknown>;
