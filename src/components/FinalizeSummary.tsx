@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { paymentMethodLabels } from '../types/payment';
 import type { Sale } from '../types/sale';
+import type { StoreSettings } from '../types/settings';
 import { formatMoney, sumMoney } from '../utils/money';
 import { printCurrentReceipt } from '../utils/printing';
 import { Receipt, type ReceiptPaperSize } from './Receipt';
@@ -8,13 +9,14 @@ import { Receipt, type ReceiptPaperSize } from './Receipt';
 type FinalizeSummaryProps = {
   sale: Sale;
   onStartNewSale: () => void;
+  settings: StoreSettings;
 };
 
 const saleDateFormatter = new Intl.DateTimeFormat('pt-BR', {
   day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
 });
 
-export function FinalizeSummary({ sale, onStartNewSale }: FinalizeSummaryProps) {
+export function FinalizeSummary({ sale, onStartNewSale, settings }: FinalizeSummaryProps) {
   const [paperSize, setPaperSize] = useState<ReceiptPaperSize>('80mm');
   const changeInCents = sumMoney(sale.payments.map((payment) => payment.changeInCents ?? 0));
 
@@ -48,7 +50,7 @@ export function FinalizeSummary({ sale, onStartNewSale }: FinalizeSummaryProps) 
               <option value="a4">Impressora comum (A4)</option>
             </select>
           </div>
-          <Receipt paperSize={paperSize} sale={sale} />
+          <Receipt paperSize={paperSize} sale={sale} settings={settings} />
           <div className="successactions">
             <button className="btn secondary" onClick={printCurrentReceipt} type="button">▤ Imprimir comprovante</button>
             <button className="btn primary" onClick={onStartNewSale} type="button">＋ Nova venda</button>
@@ -58,3 +60,4 @@ export function FinalizeSummary({ sale, onStartNewSale }: FinalizeSummaryProps) 
     </div>
   );
 }
+
