@@ -33,6 +33,10 @@ export function saveProducts(products: Product[]): void {
   }
 }
 
+export function clearStoredProducts(): void {
+  localStorage.removeItem(PRODUCTS_STORAGE_KEY);
+}
+
 function isProduct(value: unknown): value is Product {
   if (typeof value !== 'object' || value === null) return false;
   const product = value as Record<string, unknown>;
