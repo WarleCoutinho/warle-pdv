@@ -9,7 +9,7 @@ type PaymentModalProps = {
   onMethodChange: (method: PaymentMethod) => void;
   onReceivedChange: (value: string) => void;
   onClose: () => void;
-  onConfirm: (changeInCents: number) => void;
+  onConfirm: () => void;
 };
 
 const methods: { id: PaymentMethod; icon: string; label: string }[] = [
@@ -29,7 +29,7 @@ export function PaymentModal({ totalInCents, method, received, onMethodChange, o
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (canConfirm) onConfirm(changeInCents);
+    if (canConfirm) onConfirm();
   }
 
   return (
