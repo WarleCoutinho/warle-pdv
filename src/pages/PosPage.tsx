@@ -46,7 +46,11 @@ function cartReducer(items: CartItem[], action: CartAction): CartItem[] {
   }
 }
 
-export function PosPage() {
+type PosPageProps = {
+  onOpenHistory: () => void;
+};
+
+export function PosPage({ onOpenHistory }: PosPageProps) {
   const finalizingSale = useRef(false);
   const [cart, dispatch] = useReducer(cartReducer, products, loadDraftCart);
   const [search, setSearch] = useState('');
@@ -125,7 +129,7 @@ export function PosPage() {
     <div className="shell pos-shell">
       <div className="main pos-main">
         <main className="content pos-content">
-          <PosHeader />
+          <PosHeader onOpenHistory={onOpenHistory} />
           <div className="title-row">
             <div>
               <h1>Nova venda</h1>
