@@ -8,6 +8,7 @@ type PaymentModalProps = {
   payments: SalePayment[];
   onAddPayment: (payment: SalePayment) => void;
   onRemovePayment: (index: number) => void;
+  errorMessage: string | null;
   onClose: () => void;
   onFinalize: () => void;
 };
@@ -19,7 +20,7 @@ const methods: { id: PaymentMethod; icon: string; label: string }[] = [
   { id: 'credit', icon: '▤', label: 'Crédito' },
 ];
 
-export function PaymentModal({ totalInCents, payments, onAddPayment, onRemovePayment, onClose, onFinalize }: PaymentModalProps) {
+export function PaymentModal({ totalInCents, payments, onAddPayment, onRemovePayment, errorMessage, onClose, onFinalize }: PaymentModalProps) {
   const [method, setMethod] = useState<PaymentMethod>('cash');
   const [amountInput, setAmountInput] = useState(() => formatMoneyInput(totalInCents));
   const [addingPayment, setAddingPayment] = useState(payments.length === 0);
@@ -63,6 +64,7 @@ export function PaymentModal({ totalInCents, payments, onAddPayment, onRemovePay
           <button aria-label="Fechar pagamento" className="x" onClick={onClose} type="button">×</button>
         </div>
         <div className="modalbody payment-body">
+          {errorMessage && <p className="sale-save-error" role="alert">{errorMessage}</p>}
           <div className="paytotal"><span>Total da venda</span><b>{formatMoney(totalInCents)}</b></div>
 
           {payments.length > 0 && (
@@ -131,4 +133,3 @@ export function PaymentModal({ totalInCents, payments, onAddPayment, onRemovePay
     </div>
   );
 }
-
