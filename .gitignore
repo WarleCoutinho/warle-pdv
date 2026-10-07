@@ -1,0 +1,13 @@
+# Dependências e saídas geradas (para a futura implementação)
+node_modules/
+dist/
+coverage/
+
+# Arquivos locais e segredos
+.env
+.env.*
+!.env.example
+.DS_Store
+Thumbs.db
+desktop.ini
+
