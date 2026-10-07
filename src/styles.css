@@ -98,6 +98,7 @@ body.pos-mode .side{display:none}body.pos-mode .main{margin-left:0;width:100%}bo
 .history-shortcut:hover{background:#36745b}
 .history-shortcut:focus-visible{outline:3px solid #a8e7be;outline-offset:2px}
 .history-content{width:100%;max-width:1240px;padding-top:22px}
+body.pos-mode .history-content{max-width:1240px;padding:22px 32px}
 .history-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:32px;padding:12px 15px;border-radius:12px;background:#1e493b;color:#fff}
 .history-top .pos-brand{font-size:17px;letter-spacing:.2px}
 .history-top .pos-brand .logo{width:32px;height:32px;background:#36745b;color:#fff;font-size:16px}
@@ -149,6 +150,7 @@ body.pos-mode .side{display:none}body.pos-mode .main{margin-left:0;width:100%}bo
 .history-detail-actions .btn{white-space:nowrap}
 @media(max-width:760px){
   .history-content{padding:14px}
+  body.pos-mode .history-content{padding:14px}
   .history-top{margin-bottom:24px;padding:10px}
   .history-top>.btn{padding:9px;font-size:12px}
   .history-top .local-status{display:none}
@@ -175,3 +177,4 @@ body.pos-mode .side{display:none}body.pos-mode .main{margin-left:0;width:100%}bo
 @media print{
   body.printing-receipt #root .history-detail-modal>.modalhead{display:none!important}
 }
+
