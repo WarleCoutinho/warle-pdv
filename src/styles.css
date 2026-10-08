@@ -449,3 +449,14 @@ body.pos-mode .cash-content{max-width:1420px;padding:22px 32px}
   .settings-clear-actions{flex-direction:column-reverse}
   .settings-clear-actions .btn,.settings-confirm-delete{width:100%}
 }
+
+/* Sale cancellation */
+.history-filters{grid-template-columns:minmax(200px,1fr) minmax(140px,.55fr) minmax(170px,.7fr) minmax(140px,.55fr)}
+.sale-status-badge{display:inline-flex;align-items:center;width:max-content;margin:5px 0 0;padding:4px 8px;border-radius:20px;font-size:10px;font-weight:800;white-space:nowrap}.sale-status-badge.is-cancelled{background:#fff0ee;color:#9a3932}
+.sale-cancellation-summary{display:grid;gap:6px;margin:0 0 20px;padding:14px 16px;border:1px solid #efc7c2;border-left:4px solid #b33f37;border-radius:10px;background:#fff5f3;color:#71322d;font-size:12px}.sale-cancellation-summary>b{font-size:14px;text-transform:uppercase;letter-spacing:.3px}
+.history-cancel-sale,.btn.danger{border:1px solid #a9433b;background:#a9433b;color:#fff}.history-cancel-sale:hover,.btn.danger:hover:not(:disabled){background:#91372f}
+.cancellation-overlay{z-index:14}.cancellation-modal{width:min(540px,100%)}.cancellation-body>p{margin:0 0 17px;color:#53635a;line-height:1.55}.cancellation-body .field{display:grid;gap:7px;margin:14px 0;color:#394941;font-weight:700}
+.cancellation-body select,.cancellation-body textarea{width:100%;border:1px solid #cbd6ce;border-radius:9px;background:#f7f9f7;color:#172521;font-size:14px;font-weight:400}.cancellation-body select{height:43px;padding:0 12px}.cancellation-body textarea{min-height:88px;padding:11px 12px;resize:vertical}.cancellation-body select:focus,.cancellation-body textarea:focus{outline:3px solid #74b991;outline-offset:1px}
+.receipt-cancelled-flag{margin:5px 0 0;padding:5px;border:1px solid #a43c35;border-radius:4px;background:#fff0ee;color:#922f29;font-size:12px;font-weight:900;letter-spacing:.5px}.receipt-cancellation-meta{display:grid;gap:4px;margin-top:8px;padding:7px;border:1px solid #a43c35;color:#602d29;font-size:10px}.receipt-cancellation-meta>div{display:flex;justify-content:space-between;gap:7px}.receipt-cancellation-meta b{text-align:right}
+@media(max-width:1080px){.history-filters{grid-template-columns:repeat(2,minmax(0,1fr))}.history-search{grid-column:1/-1}}
+@media(max-width:760px){.history-filters{grid-template-columns:1fr 1fr}.history-search{grid-column:1/-1}.history-detail-actions .history-cancel-sale{width:100%}.cancellation-modal .modalhead,.cancellation-modal .modalbody{padding-left:18px;padding-right:18px}.cancellation-modal .modalfoot{padding:14px 18px;flex-direction:column-reverse}.cancellation-modal .modalfoot .btn{width:100%}}

@@ -1,6 +1,7 @@
 import type { PaymentMethod } from '../types/payment';
 import type { Sale } from '../types/sale';
 import { sumMoney } from './money';
+import { isCompletedSale } from './saleStatus';
 
 export type SalesPeriod = 'today' | 'week' | 'month';
 
@@ -19,11 +20,15 @@ export type SalesTrendBucket = {
 };
 
 export function sortSalesMostRecent(sales: Sale[]): Sale[] {
-  return [...sales].sort((left, right) => Date.parse(right.date) - Date.parse(left.date));
+  return getCompletedSales(sales).sort((left, right) => Date.parse(right.date) - Date.parse(left.date));
+}
+
+export function getCompletedSales(sales: Sale[]): Sale[] {
+  return sales.filter(isCompletedSale);
 }
 
 export function filterSalesByPeriod(sales: Sale[], period: SalesPeriod, referenceDate: Date = new Date()): Sale[] {
-  return sales.filter((sale) => {
+  return getCompletedSales(sales).filter((sale) => {
     const saleDate = new Date(sale.date);
     if (period === 'today') return isSameLocalDay(saleDate, referenceDate);
     if (period === 'month') {
@@ -39,22 +44,23 @@ export function filterSalesByPeriod(sales: Sale[], period: SalesPeriod, referenc
 }
 
 export function getSalesMetrics(sales: Sale[]): SalesMetrics {
-  const revenueInCents = sumMoney(sales.map((sale) => sale.totalInCents));
-  const saleCount = sales.length;
-  const sortedSales = sortSalesMostRecent(sales);
+  const completedSales = getCompletedSales(sales);
+  const revenueInCents = sumMoney(completedSales.map((sale) => sale.totalInCents));
+  const saleCount = completedSales.length;
+  const sortedSales = sortSalesMostRecent(completedSales);
   return {
     sales: sortedSales,
     revenueInCents,
     saleCount,
     averageTicketInCents: saleCount === 0 ? 0 : Math.round(revenueInCents / saleCount),
-    biggestSaleInCents: sales.reduce((biggest, sale) => Math.max(biggest, sale.totalInCents), 0),
+    biggestSaleInCents: completedSales.reduce((biggest, sale) => Math.max(biggest, sale.totalInCents), 0),
     latestSale: sortedSales[0] ?? null,
   };
 }
 
 export function getPaymentTotals(sales: Sale[]): Record<PaymentMethod, number> {
   const totals: Record<PaymentMethod, number> = { cash: 0, pix: 0, debit: 0, credit: 0 };
-  for (const sale of sales) {
+  for (const sale of getCompletedSales(sales)) {
     for (const payment of sale.payments) {
       totals[payment.method] = sumMoney([totals[payment.method], payment.amountInCents]);
     }

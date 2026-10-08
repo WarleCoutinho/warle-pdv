@@ -3,11 +3,12 @@ import { Receipt, type ReceiptPaperSize } from '../components/Receipt';
 import { AppPageTopBar } from '../components/AppPageTopBar';
 import { paymentMethodLabels, type PaymentMethod } from '../types/payment';
 import type { AppPage } from '../types/navigation';
-import type { Sale } from '../types/sale';
+import { saleCancellationReasonLabels, type Sale, type SaleCancellationReason } from '../types/sale';
 import type { StoreSettings } from '../types/settings';
-import { listSales } from '../services/saleStorage';
+import { cancelCompletedSale, listSales } from '../services/saleStorage';
 import { formatMoney } from '../utils/money';
 import { printCurrentReceipt } from '../utils/printing';
+import { getSaleStatus } from '../utils/saleStatus';
 
 type HistoryPageProps = {
   onNavigate: (page: AppPage) => void;
@@ -15,6 +16,7 @@ type HistoryPageProps = {
 };
 
 type PeriodFilter = 'today' | 'week' | 'month' | 'all';
+type StatusFilter = 'all' | 'completed' | 'cancelled';
 
 const dateFormatter = new Intl.DateTimeFormat('pt-BR', {
   day: '2-digit', month: '2-digit', year: 'numeric',
@@ -30,6 +32,7 @@ export function HistoryPage({ onNavigate, settings }: HistoryPageProps) {
   const [query, setQuery] = useState('');
   const [period, setPeriod] = useState<PeriodFilter>('all');
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod | 'all'>('all');
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [selectedSale, setSelectedSale] = useState<Sale | null>(null);
 
   useEffect(() => {
@@ -61,9 +64,15 @@ export function HistoryPage({ onNavigate, settings }: HistoryPageProps) {
           || (period === 'month' && saleDate.getFullYear() === today.getFullYear() && saleDate.getMonth() === today.getMonth());
         const matchesPayment = paymentMethod === 'all'
           || sale.payments.some((payment) => payment.method === paymentMethod);
-        return matchesNumber && matchesPeriod && matchesPayment;
+        const matchesStatus = statusFilter === 'all' || getSaleStatus(sale) === statusFilter;
+        return matchesNumber && matchesPeriod && matchesPayment && matchesStatus;
       });
-  }, [sales, query, period, paymentMethod]);
+  }, [sales, query, period, paymentMethod, statusFilter]);
+
+  function handleSaleUpdated(updatedSale: Sale) {
+    setSales((current) => current.map((sale) => sale.id === updatedSale.id ? updatedSale : sale));
+    setSelectedSale(updatedSale);
+  }
 
   return (
     <div className="shell history-shell">
@@ -109,6 +118,12 @@ export function HistoryPage({ onNavigate, settings }: HistoryPageProps) {
               <option value="credit">Crédito</option>
             </select>
           </div>
+          <div>
+            <label htmlFor="history-status">Status</label>
+            <select id="history-status" onChange={(event) => setStatusFilter(event.target.value as StatusFilter)} value={statusFilter}>
+              <option value="all">Todas</option><option value="completed">Concluídas</option><option value="cancelled">Canceladas</option>
+            </select>
+          </div>
         </section>
 
         {loadError ? (
@@ -130,7 +145,7 @@ export function HistoryPage({ onNavigate, settings }: HistoryPageProps) {
               <tbody>
                 {filteredSales.map((sale) => (
                   <tr key={sale.id}>
-                    <td><span className="history-mobile-label">Venda</span><b>#{String(sale.number).padStart(6, '0')}</b></td>
+                    <td><span className="history-mobile-label">Venda</span><b>#{String(sale.number).padStart(6, '0')}</b>{getSaleStatus(sale) === 'cancelled' && <span className="sale-status-badge is-cancelled">Cancelada</span>}</td>
                     <td><span className="history-mobile-label">Data</span>{dateFormatter.format(new Date(sale.date))}</td>
                     <td><span className="history-mobile-label">Hora</span>{timeFormatter.format(new Date(sale.date))}</td>
                     <td><span className="history-mobile-label">Total</span><b>{formatMoney(sale.totalInCents)}</b></td>
@@ -145,7 +160,7 @@ export function HistoryPage({ onNavigate, settings }: HistoryPageProps) {
       </main>
 
       {selectedSale && (
-        <SaleDetailsModal sale={selectedSale} onClose={() => setSelectedSale(null)} settings={settings} />
+        <SaleDetailsModal onSaleUpdated={handleSaleUpdated} sale={selectedSale} onClose={() => setSelectedSale(null)} settings={settings} />
       )}
     </div>
   );
@@ -153,12 +168,15 @@ export function HistoryPage({ onNavigate, settings }: HistoryPageProps) {
 
 type SaleDetailsModalProps = {
   sale: Sale;
+  onSaleUpdated: (sale: Sale) => void;
   onClose: () => void;
   settings: StoreSettings;
 };
 
-function SaleDetailsModal({ sale, onClose, settings }: SaleDetailsModalProps) {
+function SaleDetailsModal({ sale, onSaleUpdated, onClose, settings }: SaleDetailsModalProps) {
   const [paperSize, setPaperSize] = useState<ReceiptPaperSize>('80mm');
+  const [showCancellation, setShowCancellation] = useState(false);
+  const [cancellationError, setCancellationError] = useState<string | null>(null);
   const saleDate = new Date(sale.date);
 
   useEffect(() => {
@@ -177,6 +195,11 @@ function SaleDetailsModal({ sale, onClose, settings }: SaleDetailsModalProps) {
           <button aria-label="Fechar detalhes" className="x" onClick={onClose} type="button">×</button>
         </div>
         <div className="success history-detail-content">
+          {getSaleStatus(sale) === 'cancelled' && <section aria-label="Dados do cancelamento" className="sale-cancellation-summary">
+            <b>Venda cancelada</b><span>Cancelada em {sale.cancelledAt ? `${dateFormatter.format(new Date(sale.cancelledAt))} às ${timeFormatter.format(new Date(sale.cancelledAt))}` : '—'}</span>
+            <span>Motivo: {sale.cancellationReason ? saleCancellationReasonLabels[sale.cancellationReason] : '—'}</span>
+            {sale.cancellationNote && <span>Observação: {sale.cancellationNote}</span>}
+          </section>}
           <section aria-labelledby="history-items-title" className="history-detail-section">
             <h3 id="history-items-title">Produtos</h3>
             <div className="history-detail-items">
@@ -217,12 +240,33 @@ function SaleDetailsModal({ sale, onClose, settings }: SaleDetailsModalProps) {
           <Receipt paperSize={paperSize} sale={sale} settings={settings} />
           <div className="history-detail-actions">
             <button className="btn secondary" onClick={onClose} type="button">← Voltar ao histórico</button>
+            {getSaleStatus(sale) === 'completed' && <button className="btn danger history-cancel-sale" onClick={() => { setCancellationError(null); setShowCancellation(true); }} type="button">Cancelar venda</button>}
             <button className="btn primary" onClick={printCurrentReceipt} type="button">▤ Reimprimir comprovante</button>
           </div>
         </div>
       </section>
+      {showCancellation && <SaleCancellationModal error={cancellationError} onClose={() => setShowCancellation(false)} onConfirm={(reason, note) => {
+        try { const updated = cancelCompletedSale(sale.id, reason, note); onSaleUpdated(updated); setShowCancellation(false); }
+        catch (error) { setCancellationError(error instanceof Error ? error.message : 'Não foi possível cancelar a venda.'); }
+      }} sale={sale} />}
     </div>
   );
+}
+
+function SaleCancellationModal({ sale, error, onClose, onConfirm }: { sale: Sale; error: string | null; onClose: () => void; onConfirm: (reason: SaleCancellationReason, note: string) => void; }) {
+  const [reason, setReason] = useState<SaleCancellationReason | ''>(''); const [note, setNote] = useState('');
+  const canConfirm = reason !== '' && (reason !== 'other' || !!note.trim());
+  return <div className="overlay cancellation-overlay" onClick={(event) => event.target === event.currentTarget && onClose()}>
+    <form aria-labelledby="cancel-sale-title" aria-modal="true" className="modal cancellation-modal" onSubmit={(event) => { event.preventDefault(); if (canConfirm) onConfirm(reason as SaleCancellationReason, note); }} role="dialog">
+      <div className="modalhead"><h2 id="cancel-sale-title">Cancelar venda #{String(sale.number).padStart(6, '0')}?</h2><button aria-label="Fechar confirmação" className="x" onClick={onClose} type="button">×</button></div>
+      <div className="modalbody cancellation-body"><p>Esta ação marcará a venda como cancelada. Ela continuará disponível no histórico, mas deixará de participar dos cálculos de vendas e faturamento.</p>
+        <label className="field" htmlFor="cancellation-reason">Motivo do cancelamento<select id="cancellation-reason" onChange={(event) => setReason(event.target.value as SaleCancellationReason | '')} required value={reason}><option disabled value="">Selecione um motivo</option>{Object.entries(saleCancellationReasonLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+        {reason === 'other' && <label className="field" htmlFor="cancellation-note">Observação<textarea id="cancellation-note" maxLength={300} onChange={(event) => setNote(event.target.value)} required value={note} /></label>}
+        {error && <div className="settings-error" role="alert">{error}</div>}
+      </div>
+      <div className="modalfoot"><button className="btn secondary" onClick={onClose} type="button">Voltar</button><button className="btn danger" disabled={!canConfirm} type="submit">Confirmar cancelamento</button></div>
+    </form>
+  </div>;
 }
 
 function getPaymentSummary(sale: Sale): string {

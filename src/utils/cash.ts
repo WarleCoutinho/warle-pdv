@@ -1,9 +1,10 @@
 import type { CashMovement, CashSession, CashSummary } from '../types/cash';
 import type { Sale } from '../types/sale';
 import { sumMoney } from './money';
+import { isCompletedSale } from './saleStatus';
 
 export function getCashSummary(session: CashSession, movements: CashMovement[], sales: Sale[]): CashSummary {
-  const sessionSales = sales.filter((sale) => sale.cashSessionId === session.id);
+  const sessionSales = sales.filter((sale) => sale.cashSessionId === session.id && isCompletedSale(sale));
   const salesInCents = sumMoney(sessionSales.flatMap((sale) => sale.payments
     .filter((payment) => payment.method === 'cash')
     .map((payment) => payment.amountInCents)));
@@ -19,5 +20,6 @@ export function getCashSummary(session: CashSession, movements: CashMovement[], 
 
 export function getSessionCashSales(session: CashSession, sales: Sale[]): Sale[] {
   return sales.filter((sale) => sale.cashSessionId === session.id
+    && isCompletedSale(sale)
     && sale.payments.some((payment) => payment.method === 'cash' && payment.amountInCents > 0));
 }

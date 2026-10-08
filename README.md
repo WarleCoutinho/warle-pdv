@@ -24,7 +24,8 @@ npm run build
 - Combinar pagamentos em dinheiro, Pix, débito e crédito; em dinheiro, validar o valor recebido e calcular troco em centavos.
 - Persistir vendas concluídas localmente com número sequencial e snapshot de itens e pagamentos.
 - Exibir comprovante e imprimir em papel térmico de 58/80 mm ou em A4.
-- Consultar vendas salvas no Histórico, com busca por número, filtros de período e pagamento, detalhes históricos e reimpressão.
+- Consultar vendas salvas no Histórico, com busca por número, filtros de período, pagamento e status, detalhes históricos e reimpressão.
+- Cancelar vendas concluídas pelo Histórico com motivo obrigatório, preservando os dados originais e identificando o cancelamento nos detalhes e no comprovante.
 - Consultar no Início faturamento e pagamentos de hoje, última venda e vendas recentes.
 - Analisar faturamento, ticket médio, maior venda, tendências por período e divisão dos pagamentos em Relatórios.
 - Cadastrar, editar, pesquisar, filtrar, ativar e desativar produtos com persistência local; a Nova venda usa o catálogo atualizado.
@@ -40,4 +41,4 @@ Os produtos demonstrativos de `src/data/products.ts` e as configurações padrã
 - `outputs/index.html`: protótipo navegável original.
 - `outputs/Direcao-visual.md`: identidade visual, componentes e recomendações de UX.
 
-Os dados de Início e Relatórios vêm exclusivamente das vendas concluídas salvas localmente. Estoque, clientes, cancelamento e os demais módulos do protótipo ainda não estão implementados.
+Os dados de Início e Relatórios consideram somente vendas concluídas; o Histórico preserva vendas canceladas com seus itens, pagamentos e valores originais. Vendas antigas sem status são tratadas como concluídas. Estoque, clientes, cancelamento e os demais módulos do protótipo ainda não estão implementados.

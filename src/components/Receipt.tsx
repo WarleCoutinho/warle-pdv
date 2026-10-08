@@ -2,6 +2,8 @@ import type { Sale } from '../types/sale';
 import type { StoreSettings } from '../types/settings';
 import { paymentMethodLabels } from '../types/payment';
 import { formatMoney, sumMoney } from '../utils/money';
+import { getSaleStatus } from '../utils/saleStatus';
+import { saleCancellationReasonLabels } from '../types/sale';
 
 export type ReceiptPaperSize = '58mm' | '80mm' | 'a4';
 
@@ -23,6 +25,7 @@ export function Receipt({ sale, paperSize, settings }: ReceiptProps) {
   const cashReceivedInCents = sumMoney(cashPayments.map((payment) => payment.amountReceivedInCents ?? payment.amountInCents));
   const changeInCents = sumMoney(cashPayments.map((payment) => payment.changeInCents ?? 0));
   const saleDate = new Date(sale.date);
+  const isCancelled = getSaleStatus(sale) === 'cancelled';
 
   return (
     <article className={`print-root receipt-paper-${paperSize}`}>
@@ -32,12 +35,16 @@ export function Receipt({ sale, paperSize, settings }: ReceiptProps) {
           {settings.address && <p className="receipt-contact">{settings.address}</p>}
           {settings.phone && <p className="receipt-contact">{settings.phone}</p>}
           <p className="receipt-title">COMPROVANTE DE VENDA</p>
+          {isCancelled && <p className="receipt-cancelled-flag">VENDA CANCELADA</p>}
         </header>
         <div className="receipt-meta">
           <div><span>Venda</span><b>#{String(sale.number).padStart(6, '0')}</b></div>
           <div><span>Data</span><b>{dateFormatter.format(saleDate)}</b></div>
           <div><span>Hora</span><b>{timeFormatter.format(saleDate)}</b></div>
         </div>
+        {isCancelled && sale.cancelledAt && <div className="receipt-cancellation-meta"><div><span>Cancelada em</span><b>{dateFormatter.format(new Date(sale.cancelledAt))} {timeFormatter.format(new Date(sale.cancelledAt))}</b></div>
+          {sale.cancellationReason && <div><span>Motivo</span><b>{saleCancellationReasonLabels[sale.cancellationReason]}</b></div>}{sale.cancellationNote && <div><span>Observação</span><b>{sale.cancellationNote}</b></div>}
+        </div>}
 
         <hr />
         <div className="receipt-items">

@@ -1,8 +1,9 @@
 import type { SalePayment } from '../types/payment';
-import type { Sale, SaleItem } from '../types/sale';
+import type { Sale, SaleCancellationReason, SaleItem } from '../types/sale';
 import type { CartItem } from '../types/product';
 import { multiplyMoney, sumMoney } from '../utils/money';
 import { calculatePaymentTotals } from '../utils/payments';
+import { isCompletedSale } from '../utils/saleStatus';
 
 const SALES_STORAGE_KEY = 'raiz-pdv:completed-sales';
 
@@ -41,6 +42,7 @@ export function saveCompletedSale(items: CartItem[], totalInCents: number, payme
     number,
     date: new Date().toISOString(),
     cashSessionId,
+    status: 'completed',
     items: items.map(toSaleItem),
     totalInCents,
     payments: payments.map((payment) => ({ ...payment })),
@@ -53,6 +55,23 @@ export function saveCompletedSale(items: CartItem[], totalInCents: number, payme
     throw new Error('Não foi possível salvar a venda. A venda não foi concluída.');
   }
   return sale;
+}
+
+export function cancelCompletedSale(saleId: string, reason: SaleCancellationReason, note = ''): Sale {
+  if (!['launch_error', 'customer_cancelled', 'payment_error', 'other'].includes(reason)) throw new Error('Selecione um motivo válido para cancelar a venda.');
+  if (reason === 'other' && !note.trim()) throw new Error('Descreva o motivo do cancelamento.');
+  if (note.length > 300) throw new Error('A observação deve ter no máximo 300 caracteres.');
+  const sales = listSales();
+  const saleIndex = sales.findIndex((item) => item.id === saleId);
+  if (saleIndex < 0) throw new Error('Esta venda não foi encontrada. Atualize o histórico e tente novamente.');
+  const sale = sales[saleIndex];
+  if (!isCompletedSale(sale)) throw new Error('Esta venda já está cancelada.');
+  const cancelledSale: Sale = { ...sale, status: 'cancelled', cancelledAt: new Date().toISOString(), cancellationReason: reason,
+    ...(note.trim() ? { cancellationNote: note.trim() } : {}) };
+  const updatedSales = [...sales]; updatedSales[saleIndex] = cancelledSale;
+  try { localStorage.setItem(SALES_STORAGE_KEY, JSON.stringify(updatedSales)); }
+  catch { throw new Error('Não foi possível salvar o cancelamento no armazenamento local.'); }
+  return cancelledSale;
 }
 
 function toSaleItem(item: CartItem): SaleItem {
@@ -74,7 +93,13 @@ function isSale(value: unknown): value is Sale {
     || !Number.isSafeInteger(sale.totalInCents) || Number(sale.totalInCents) < 0
     || !Array.isArray(sale.items) || !sale.items.every(isSaleItem)
     || !Array.isArray(sale.payments) || !sale.payments.every(isSalePayment)
+    || (sale.status !== undefined && !['completed', 'cancelled'].includes(String(sale.status)))
     || (sale.cashSessionId !== undefined && (typeof sale.cashSessionId !== 'string' || !sale.cashSessionId))) return false;
+  if (sale.status === 'cancelled') {
+    if (typeof sale.cancelledAt !== 'string' || !Number.isFinite(Date.parse(sale.cancelledAt))
+      || !['launch_error', 'customer_cancelled', 'payment_error', 'other'].includes(String(sale.cancellationReason))
+      || (sale.cancellationNote !== undefined && typeof sale.cancellationNote !== 'string')) return false;
+  } else if (sale.cancelledAt !== undefined || sale.cancellationReason !== undefined || sale.cancellationNote !== undefined) return false;
 
   try {
     const itemTotal = sumMoney((sale.items as SaleItem[]).map((item) => item.subtotalInCents));
