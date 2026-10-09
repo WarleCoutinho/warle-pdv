@@ -75,10 +75,10 @@ export function SettingsPage({ settings, onNavigate, onSaveSettings, onClearLoca
     }
   }
 
-  function confirmRestore() {
+  async function confirmRestore() {
     if (!restoreCandidate) return;
     try {
-      restoreBackup(restoreCandidate.backup);
+      await restoreBackup(restoreCandidate.backup);
       window.location.reload();
     } catch (restoreFailure) {
       setBackupError(restoreFailure instanceof Error ? restoreFailure.message : 'Não foi possível restaurar o backup.');

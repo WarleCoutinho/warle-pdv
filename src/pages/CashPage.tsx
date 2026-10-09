@@ -19,9 +19,9 @@ type CashPageProps = {
   data: CashData;
   error: string | null;
   onNavigate: (page: AppPage) => void;
-  onOpen: (openingAmountInCents: number, operatorId: string) => void;
-  onMovement: (type: CashMovement['type'], amountInCents: number, description: string) => void;
-  onClose: (sessionId: string, countedInCents: CashPaymentTotals, reviewedFingerprint: string) => void;
+  onOpen: (openingAmountInCents: number, operatorId: string) => Promise<void>;
+  onMovement: (type: CashMovement['type'], amountInCents: number, description: string) => Promise<void>;
+  onClose: (sessionId: string, countedInCents: CashPaymentTotals, reviewedFingerprint: string) => Promise<void>;
 };
 type ModalKind = 'open' | 'supply' | 'withdrawal' | 'close' | null;
 const labels: Record<PaymentMethod | 'customer_credit', string> = { cash: 'Dinheiro', pix: 'Pix', debit: 'Débito', credit: 'Crédito', customer_credit: 'Crédito do cliente' };
@@ -29,7 +29,8 @@ const dateTimeFormatter = new Intl.DateTimeFormat('pt-BR', { day: '2-digit', mon
 const timeFormatter = new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
 
 export function CashPage({ operators, data, error, onNavigate, onOpen, onMovement, onClose }: CashPageProps) {
-  const { sales, loading: salesLoading, error: salesError } = usePersistedSales();
+  const { sales, financial, loading: salesLoading, error: salesError } = usePersistedSales();
+  const actionBusy = useRef(false);
   const [modal, setModal] = useState<ModalKind>(null);
   const [operatorId, setOperatorId] = useState('');
   const [closingSessionId, setClosingSessionId] = useState<string | null>(null);
@@ -43,7 +44,7 @@ export function CashPage({ operators, data, error, onNavigate, onOpen, onMovemen
     if (!openSession || salesLoading || salesError || error) return { draft: null, error: null };
     try { return { draft: getCashReconciliationDraft(openSession, data.movements, sales), error: null }; }
     catch (cause) { return { draft: null, error: cause instanceof Error ? cause.message : 'Não foi possível apurar as vendas.' }; }
-  }, [openSession, data.movements, sales, salesLoading, salesError, error]);
+  }, [openSession, data.movements, sales, financial, salesLoading, salesError, error]);
   const summary = draftState.draft?.cashSummary ?? null;
   const sessionSales = useMemo(() => openSession ? sales.filter((sale) => sale.cashSessionId === openSession.id) : [], [openSession, sales]);
   const closedSessions = data.sessions.filter((session) => session.status === 'closed');
@@ -54,7 +55,7 @@ export function CashPage({ operators, data, error, onNavigate, onOpen, onMovemen
     if (!closingSession || salesLoading || salesError || error) return { draft: null, error: null };
     try { return { draft: getCashReconciliationDraft(closingSession, data.movements, sales), error: null }; }
     catch (failure) { return { draft: null, error: failure instanceof Error ? failure.message : 'Não foi possível conferir o caixa.' }; }
-  }, [closingSession, data.movements, sales, salesLoading, salesError, error]);
+  }, [closingSession, data.movements, sales, financial, salesLoading, salesError, error]);
 
   function showModal(kind: Exclude<ModalKind, null>) {
     setClosingSessionId(null);
@@ -65,21 +66,22 @@ export function CashPage({ operators, data, error, onNavigate, onOpen, onMovemen
     setModal(kind);
   }
 
-  function submitModal(event: FormEvent<HTMLFormElement>) {
+  async function submitModal(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!modal || modal === 'close') return;
+    if (!modal || modal === 'close' || actionBusy.current) return;
     const amountInCents = parseMoneyInput(amount);
     if (amountInCents === null || ((modal === 'supply' || modal === 'withdrawal') && amountInCents === 0)) {
       setActionError('Informe um valor válido em reais.');
       return;
     }
     try {
-      if (modal === 'open') onOpen(amountInCents, operatorId);
-      if (modal === 'supply' || modal === 'withdrawal') onMovement(modal, amountInCents, description);
+      actionBusy.current = true;
+      if (modal === 'open') await onOpen(amountInCents, operatorId);
+      if (modal === 'supply' || modal === 'withdrawal') await onMovement(modal, amountInCents, description);
       setModal(null);
     } catch (caught) {
       setActionError(caught instanceof Error ? caught.message : 'Não foi possível concluir esta operação.');
-    }
+    } finally { actionBusy.current = false; }
   }
 
   return <main className="content cash-content">
@@ -144,7 +146,7 @@ export function CashPage({ operators, data, error, onNavigate, onOpen, onMovemen
       operators={operators} operatorId={operatorId} onOperatorChange={setOperatorId} onAmountChange={setAmount} onClose={() => setModal(null)} onDescriptionChange={setDescription} onSubmit={submitModal} error={actionError} />}
     {modal === 'close' && closingSession && closingState.draft && <CashReconciliationModal
       sessionLabel={cashLabel(closingSession)} draft={closingState.draft} error={actionError} onClose={() => { setModal(null); setActionError(null); }}
-      onConfirm={(counts) => { onClose(closingSession.id, counts, closingState.draft!.sourceFingerprint); setModal(null); setClosingSessionId(null); }}
+      onConfirm={async (counts) => { await onClose(closingSession.id, counts, closingState.draft!.sourceFingerprint); setModal(null); setClosingSessionId(null); }}
       onError={setActionError}
     />}
     {modal === 'close' && closingState.error && <div className="cash-error" role="alert">{closingState.error}<button onClick={() => setModal(null)} type="button">Fechar aviso</button></div>}
@@ -199,9 +201,10 @@ function CashActionModal(props: {
 
 function CashReconciliationModal({ sessionLabel, draft, error, onClose, onConfirm, onError }: {
   sessionLabel: string; draft: CashReconciliationDraft; error: string | null; onClose: () => void;
-  onConfirm: (counts: CashPaymentTotals) => void; onError: (message: string | null) => void;
+  onConfirm: (counts: CashPaymentTotals) => Promise<void>; onError: (message: string | null) => void;
 }) {
   const dialogRef = useModalFocus(onClose);
+  const confirming = useRef(false);
   const [inputs, setInputs] = useState<Record<PaymentMethod, string>>({ cash: '', pix: '', debit: '', credit: '' });
   const [counts, setCounts] = useState<CashPaymentTotals | null>(null);
   const [reviewing, setReviewing] = useState(false);
@@ -225,14 +228,15 @@ function CashReconciliationModal({ sessionLabel, draft, error, onClose, onConfir
     }
     setCounts(parsed); setReviewing(true); onError(null);
   }
-  function handleConfirm() {
-    if (!counts) return;
-    try { onConfirm(counts); }
+  async function handleConfirm() {
+    if (!counts || confirming.current) return;
+    confirming.current = true;
+    try { await onConfirm(counts); }
     catch (cause) {
       const message = cause instanceof Error ? cause.message : 'Não foi possível gravar o fechamento.';
       onError(message);
       if (message.includes('mudaram') || message.includes('Reabra')) { setReviewing(false); setCounts(null); }
-    }
+    } finally { confirming.current = false; }
   }
   const differences = counts ? paymentMethods.map((method) => ({ method, value: counts[method] - draft.expectedByMethodInCents[method] })) : [];
   const shortages = differences.filter((item) => item.value < 0).reduce((total, item) => total - item.value, 0);

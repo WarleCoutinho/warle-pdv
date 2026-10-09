@@ -1,3 +1,4 @@
+import { getSaleLines, getReturnedLineQuantities } from '../utils/saleLines';
 import { useEffect, useState, type FormEvent } from 'react';
 import { useModalFocus } from '../hooks/useModalFocus';
 import { createPortal } from 'react-dom';
@@ -5,7 +6,7 @@ import { printCustomerCreditReceipt } from '../utils/printing';
 import type { Sale } from '../types/sale';
 import type { PaymentMethod } from '../types/payment';
 import { getOpenCashSession, loadCashData } from '../services/cashStorage';
-import { loadSaleFinancialData, recordMerchandiseReturn, settleSaleBalance, getSaleEligibleAmount, getSaleResolvedAmount, updatePendingRefund, withCustomerCreditLock } from '../services/saleFinancialStorage';
+import { loadSaleFinancialData, recordMerchandiseReturn, settleSaleBalance, getSaleEligibleAmount, getSaleResolvedAmount, updatePendingRefund } from '../services/saleFinancialStorage';
 import { listSales } from '../services/saleStorage';
 import { formatMoney, parseMoneyInput, sumMoney } from '../utils/money';
 import { getCashSummary } from '../utils/cash';
@@ -47,23 +48,23 @@ export function SaleFinancialPanel({ sale, settings }: { sale: Sale; settings: S
         const physical = getCashSummary(openSession, cashData.movements, listSales()).expectedInCents;
         if (amounts.cash > physical) throw new Error('O valor do reembolso em dinheiro excede o saldo físico disponível no caixa.');
       }
-      const result = await withCustomerCreditLock(() => settleSaleBalance(sale, { amounts, statuses, cashSessionId: openSession?.id }));
+      const result = await settleSaleBalance(sale, { amounts, statuses, cashSessionId: openSession?.id });
       setFinancial(result.data); setReceipts(result.issuedCredits.map(({ credit, authCode }) => ({ receiptNumber: credit.receiptNumber, originalSaleNumber: credit.originalSaleNumber, issuedAt: credit.issuedAt, amountInCents: credit.originalAmountInCents, authCode })));
       setShowSettlement(false);
     } catch (failure) { setError(failure instanceof Error ? failure.message : 'Não foi possível registrar a resolução financeira.'); } finally { setSaving(false); }
   }
 
-  function saveReturn(quantities: Record<string, number>) {
-    try { const current = getOpenCashSession(loadCashData()); const next = recordMerchandiseReturn(sale, quantities, current?.id); setFinancial(next); setShowReturn(false); setShowSettlement(true); setError(''); }
+  async function saveReturn(quantities: Record<string, number>) {
+    try { const current = getOpenCashSession(loadCashData()); const next = await recordMerchandiseReturn(sale, quantities, current?.id); setFinancial(next); setShowReturn(false); setShowSettlement(true); setError(''); }
     catch (failure) { setError(failure instanceof Error ? failure.message : 'Não foi possível registrar a devolução.'); }
   }
 
-  function failPending(refundId: string) {
-    try { setFinancial(updatePendingRefund(refundId, 'failed')); setError(''); }
+  async function failPending(refundId: string) {
+    try { setFinancial(await updatePendingRefund(refundId, 'failed')); setError(''); }
     catch (failure) { setError(failure instanceof Error ? failure.message : 'Não foi possível registrar a falha.'); }
   }
 
-  function resolvePending(refundId: string) {
+  async function resolvePending(refundId: string) {
     try {
       const open = getOpenCashSession(loadCashData());
       const refund = financial.refunds.find((item) => item.id === refundId);
@@ -74,7 +75,7 @@ export function SaleFinancialPanel({ sale, settings }: { sale: Sale; settings: S
         const physical = getCashSummary(open, cashData.movements, listSales()).expectedInCents;
         if (refund.amountInCents > physical) throw new Error('O reembolso excede o dinheiro físico disponível no caixa.');
       }
-      setFinancial(updatePendingRefund(refundId, 'completed', open?.id)); setError('');
+      setFinancial(await updatePendingRefund(refundId, 'completed', open?.id)); setError('');
     } catch (failure) { setError(failure instanceof Error ? failure.message : 'Não foi possível atualizar o reembolso.'); }
   }
 
@@ -95,11 +96,11 @@ export function SaleFinancialPanel({ sale, settings }: { sale: Sale; settings: S
 }
 
 function ReturnModal({ sale, financial, onClose, onSave, error }: { error: string; sale: Sale; financial: SaleFinancialData; onClose: () => void; onSave: (quantities: Record<string, number>) => void }) {
-  const returned: Record<string, number> = {};
-  for (const entry of financial.returns.filter((item) => item.saleId === sale.id)) for (const item of entry.items) returned[item.productId] = (returned[item.productId] ?? 0) + item.quantity;
+  const lines = getSaleLines(sale);
+  const returned = getReturnedLineQuantities(sale, financial);
   const [quantities, setQuantities] = useState<Record<string, string>>({});
-  const amount = sumMoney(sale.items.map((item) => item.unitPriceInCents * (Number(quantities[item.productId] || 0))));
-  return <div className="overlay"><form className="modal return-modal" onSubmit={(event: FormEvent) => { event.preventDefault(); onSave(Object.fromEntries(Object.entries(quantities).map(([id, value]) => [id, Number(value || 0)]))); }}><div className="modalhead"><h2>1. Quais produtos voltaram?</h2><button className="x" onClick={onClose} type="button">×</button></div><div className="modalbody"><p>Informe a quantidade recebida de cada produto. Depois, escolha como devolver o valor.</p>{error && <p className="sale-financial-error" role="alert">{error}</p>}<button className="btn secondary" type="button" onClick={() => setQuantities(Object.fromEntries(sale.items.map((item) => [item.productId, String(item.quantity - (returned[item.productId] ?? 0))])))}>Devolver todos os produtos</button>{sale.items.map((item) => <label className="return-item" key={item.productId}><span><b>{item.productName}</b><small>{item.quantity - (returned[item.productId] ?? 0)} unidade(s) disponível(is) · {formatMoney(item.unitPriceInCents)} cada</small></span><input aria-label={`Quantidade devolvida de ${item.productName}`} min="0" max={item.quantity - (returned[item.productId] ?? 0)} step="1" inputMode="numeric" onChange={(event) => setQuantities({ ...quantities, [item.productId]: event.target.value })} type="number" value={quantities[item.productId] ?? '0'} /></label>)}<div className="sale-financial-total"><span>Valor dos produtos selecionados</span><b>{formatMoney(amount)}</b></div></div><div className="modalfoot"><button className="btn secondary" onClick={onClose} type="button">Voltar</button><button className="btn primary" disabled={amount <= 0} type="submit">Confirmar itens e continuar →</button></div></form></div>;
+  const amount = sumMoney(lines.map((item) => item.unitPriceInCents * (Number(quantities[item.lineId] || 0))));
+  return <div className="overlay"><form className="modal return-modal" onSubmit={(event: FormEvent) => { event.preventDefault(); onSave(Object.fromEntries(Object.entries(quantities).map(([id, value]) => [id, Number(value || 0)]))); }}><div className="modalhead"><h2>1. Quais produtos voltaram?</h2><button className="x" onClick={onClose} type="button">×</button></div><div className="modalbody"><p>Informe a quantidade recebida de cada produto. Depois, escolha como devolver o valor.</p>{error && <p className="sale-financial-error" role="alert">{error}</p>}<button className="btn secondary" type="button" onClick={() => setQuantities(Object.fromEntries(lines.map((item) => [item.lineId, String(item.quantity - (returned[item.lineId] ?? 0))])))}>Devolver todos os produtos</button>{lines.map((item) => <label className="return-item" key={item.lineId}><span><b>{item.productName}</b><small>{item.quantity - (returned[item.lineId] ?? 0)} unidade(s) disponível(is) · {formatMoney(item.unitPriceInCents)} cada</small></span><input aria-label={`Quantidade devolvida de ${item.productName}`} min="0" max={item.quantity - (returned[item.lineId] ?? 0)} step="1" inputMode="numeric" onChange={(event) => setQuantities({ ...quantities, [item.lineId]: event.target.value })} type="number" value={quantities[item.lineId] ?? '0'} /></label>)}<div className="sale-financial-total"><span>Valor dos produtos selecionados</span><b>{formatMoney(amount)}</b></div></div><div className="modalfoot"><button className="btn secondary" onClick={onClose} type="button">Voltar</button><button className="btn primary" disabled={amount <= 0} type="submit">Confirmar itens e continuar →</button></div></form></div>;
 }
 
 function SettlementModal({ maxAmountInCents, onClose, onSave, error, saving }: { maxAmountInCents: number; onClose: () => void; onSave: (amounts: Record<PaymentMethod | 'customer_credit', number>, statuses: Partial<Record<PaymentMethod, 'completed' | 'pending'>>) => Promise<void>; error: string; saving: boolean }) {

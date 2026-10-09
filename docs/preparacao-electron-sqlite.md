@@ -1,5 +1,7 @@
 # Preparação para Electron + SQLite
 
+> Planejamento histórico da Etapa 11. O estado posterior, os créditos, operadores e linhas estáveis estão documentados no [relatório da Etapa 11.2](etapa-11-2-estabilizacao.md). O schema abaixo é preliminar e precisa incorporar essas entidades antes de uma migração.
+
 **Etapa 11 — planejamento técnico, sem integração nesta etapa**
 **Data da inspeção:** 08/10/2026
 **Branch:** `codex/react-pos-base`

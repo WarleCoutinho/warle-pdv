@@ -1,3 +1,5 @@
+import { withFinancialLock } from './financialLock';
+import { assertFinancialRecoveryComplete } from './saleFinancialStorage';
 import { requireCashOwner, requireOperator } from './operatorAccess';
 import type { CashData, CashMovement, CashSession, CashReconciliation } from '../types/cash';
 import type { PaymentMethod } from '../types/payment';
@@ -32,45 +34,55 @@ export function assertCurrentCashSession(sessionId: string): CashSession {
   requireCashOwner(session.operatorId);
   return session;
 }
-export function openCashSession(openingAmountInCents: number, operatorId?: string): CashData {
-  const signedIn = requireOperator();
-  if (operatorId !== signedIn.id) throw new Error('O caixa deve ser aberto pelo operador que entrou com senha.');
-  assertCents(openingAmountInCents, true);
-  const data = loadCashData();
-  if (getOpenCashSession(data)) throw new Error('Já existe um caixa aberto para hoje.');
-  const operator = loadSettings().operators?.find((item) => item.id === operatorId && item.active);
-  if (!operator) throw new Error('Selecione um operador ativo cadastrado em Configurações.');
-  if (getPendingCashSessions(data).some((session) => !session.operatorId || session.operatorId === operator.id)) throw new Error('Feche o caixa pendente deste operador antes de abrir o de hoje. Caixas antigos sem operador também precisam ser fechados.');
-  const now = new Date();
-  const session: CashSession = { id: createId(), openedAt: now.toISOString(), businessDate: cashBusinessDate(now), operatorId: operator.id, operatorName: operator.name, openingAmountInCents, status: 'open' };
-  const next = { ...data, sessions: [session, ...data.sessions] }; saveCashData(next); return next;
+export async function openCashSession(openingAmountInCents: number, operatorId?: string): Promise<CashData> {
+  return withFinancialLock(() => {
+    assertFinancialRecoveryComplete();
+    const signedIn = requireOperator();
+    if (operatorId !== signedIn.id) throw new Error('O caixa deve ser aberto pelo operador que entrou com senha.');
+    assertCents(openingAmountInCents, true);
+    const data = loadCashData();
+    if (getOpenCashSession(data)) throw new Error('Já existe um caixa aberto para hoje.');
+    const operator = loadSettings().operators?.find((item) => item.id === operatorId && item.active);
+    if (!operator) throw new Error('Selecione um operador ativo cadastrado em Configurações.');
+    if (getPendingCashSessions(data).some((session) => !session.operatorId || session.operatorId === operator.id)) throw new Error('Feche o caixa pendente deste operador antes de abrir o de hoje. Caixas antigos sem operador também precisam ser fechados.');
+    const now = new Date();
+    const session: CashSession = { id: createId(), openedAt: now.toISOString(), businessDate: cashBusinessDate(now), operatorId: operator.id, operatorName: operator.name, openingAmountInCents, status: 'open' };
+    const next = { ...data, sessions: [session, ...data.sessions] }; saveCashData(next); return next;
+  });
 }
-export function addCashMovement(sessionId: string, type: CashMovement['type'], amountInCents: number, description = ''): CashData {
-  assertCents(amountInCents, false);
-  const data = loadCashData();
-  const session = getOpenCashSession(data);
-  if (session?.id !== sessionId) throw new Error('Movimentações só podem entrar no caixa aberto de hoje.');
-  if (!session) throw new Error('Não há um caixa aberto para registrar esta movimentação.');
-  requireCashOwner(session.operatorId);
-  if (type === 'withdrawal' && amountInCents > getCashSummary(session, data.movements, listSales()).expectedInCents) throw new Error('Não é possível realizar esta sangria. O valor informado é maior que o saldo disponível do caixa.');
-  const movement: CashMovement = { id: createId(), cashSessionId: sessionId, type, amountInCents, ...(description.trim() ? { description: description.trim() } : {}), createdAt: new Date().toISOString() };
-  const next = { ...data, movements: [movement, ...data.movements] }; saveCashData(next); return next;
+export async function addCashMovement(sessionId: string, type: CashMovement['type'], amountInCents: number, description = ''): Promise<CashData> {
+  return withFinancialLock(() => {
+    assertFinancialRecoveryComplete();
+    if (!['supply', 'withdrawal'].includes(type)) throw new Error('Tipo de movimentação inválido.');
+    assertCents(amountInCents, false);
+    const data = loadCashData();
+    const session = getOpenCashSession(data);
+    if (session?.id !== sessionId) throw new Error('Movimentações só podem entrar no caixa aberto de hoje.');
+    if (!session) throw new Error('Não há um caixa aberto para registrar esta movimentação.');
+    requireCashOwner(session.operatorId);
+    if (type === 'withdrawal' && amountInCents > getCashSummary(session, data.movements, listSales()).expectedInCents) throw new Error('Não é possível realizar esta sangria. O valor informado é maior que o saldo disponível do caixa.');
+    const movement: CashMovement = { id: createId(), cashSessionId: sessionId, type, amountInCents, ...(description.trim() ? { description: description.trim() } : {}), createdAt: new Date().toISOString() };
+    const next = { ...data, movements: [movement, ...data.movements] }; saveCashData(next); return next;
+  });
 }
-export function closeCashSession(sessionId: string, countedInCents: CashPaymentTotals, reviewedFingerprint: string): CashData {
-  for (const method of paymentMethods) assertCents(countedInCents?.[method], true);
-  const data = loadCashData();
-  const sessionIndex = data.sessions.findIndex((item) => item.id === sessionId && item.status === 'open');
-  if (sessionIndex < 0) throw new Error('Este caixa já foi fechado ou não está mais aberto.');
-  const session = data.sessions[sessionIndex];
-  requireCashOwner(session.operatorId, true);
-  const sales = listSales();
-  const draft = getCashReconciliationDraft(session, data.movements, sales);
-  if (!reviewedFingerprint || draft.sourceFingerprint !== reviewedFingerprint) throw new Error('Os dados do caixa ou das vendas mudaram durante a conferência. Reabra o fechamento, revise os quatro valores e confirme novamente.');
-  const reconciliation = createCashReconciliation(draft, countedInCents);
-  const cash = reconciliation.methods.cash;
-  const closed: CashSession = { ...session, status: 'closed', closedAt: new Date().toISOString(), countedAmountInCents: cash.countedInCents, expectedAmountInCents: cash.expectedInCents, differenceInCents: cash.differenceInCents, reconciliation };
-  const sessions = [...data.sessions]; sessions[sessionIndex] = closed;
-  const next = { ...data, sessions }; saveCashData(next); return next;
+export async function closeCashSession(sessionId: string, countedInCents: CashPaymentTotals, reviewedFingerprint: string): Promise<CashData> {
+  return withFinancialLock(() => {
+    assertFinancialRecoveryComplete();
+    for (const method of paymentMethods) assertCents(countedInCents?.[method], true);
+    const data = loadCashData();
+    const sessionIndex = data.sessions.findIndex((item) => item.id === sessionId && item.status === 'open');
+    if (sessionIndex < 0) throw new Error('Este caixa já foi fechado ou não está mais aberto.');
+    const session = data.sessions[sessionIndex];
+    requireCashOwner(session.operatorId, true);
+    const sales = listSales();
+    const draft = getCashReconciliationDraft(session, data.movements, sales);
+    if (!reviewedFingerprint || draft.sourceFingerprint !== reviewedFingerprint) throw new Error('Os dados do caixa ou das vendas mudaram durante a conferência. Reabra o fechamento, revise os quatro valores e confirme novamente.');
+    const reconciliation = createCashReconciliation(draft, countedInCents);
+    const cash = reconciliation.methods.cash;
+    const closed: CashSession = { ...session, status: 'closed', closedAt: new Date().toISOString(), countedAmountInCents: cash.countedInCents, expectedAmountInCents: cash.expectedInCents, differenceInCents: cash.differenceInCents, reconciliation };
+    const sessions = [...data.sessions]; sessions[sessionIndex] = closed;
+    const next = { ...data, sessions }; saveCashData(next); return next;
+  });
 }
 export function clearCashData(): void { localStorage.removeItem(CASH_STORAGE_KEY); }
 function saveCashData(data: CashData): void { try { localStorage.setItem(CASH_STORAGE_KEY, JSON.stringify(data)); } catch { throw new Error('Não foi possível salvar os dados do caixa no armazenamento local. O fechamento não foi concluído.'); } }
@@ -79,7 +91,7 @@ function isCashData(value: unknown): value is CashData {
   if (typeof value !== 'object' || value === null) return false;
   const data = value as Record<string, unknown>;
   return Array.isArray(data.sessions) && data.sessions.every(isCashSession) && validOpenSessions(data.sessions as CashSession[])
-    && Array.isArray(data.movements) && data.movements.every(isCashMovement)
+    && Array.isArray(data.movements) && data.movements.every(isCashMovement) && new Set(data.movements.map((item: CashMovement) => item.id)).size === data.movements.length
     && (data.movements as CashMovement[]).every((movement) => (data.sessions as CashSession[]).some((session) => session.id === movement.cashSessionId));
 }
 function isCashSession(value: unknown): value is CashSession {

@@ -196,8 +196,8 @@ function SaleDetailsModal({ sale, onSaleUpdated, onClose, settings }: SaleDetail
           <section aria-labelledby="history-items-title" className="history-detail-section">
             <h3 id="history-items-title">Produtos</h3>
             <div className="history-detail-items">
-              {sale.items.map((item) => (
-                <div className="history-detail-item" key={`${item.productId}-${item.productName}`}>
+              {sale.items.map((item, index) => (
+                <div className="history-detail-item" key={item.lineId ?? `legacy-line-${index + 1}`}>
                   <div><b>{item.quantity}× {item.productName}</b><small>{formatMoney(item.unitPriceInCents)} cada</small></div>
                   <b>{formatMoney(item.subtotalInCents)}</b>
                 </div>

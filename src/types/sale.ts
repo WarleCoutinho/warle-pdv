@@ -1,6 +1,8 @@
 import type { SalePayment } from './payment';
 
 export type SaleItem = {
+  /** Stable line identity; absent on historical records. */
+  lineId?: string;
   productId: string;
   productName: string;
   unitPriceInCents: number;

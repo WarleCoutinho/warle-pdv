@@ -81,3 +81,14 @@ Vendas antigas e seus vínculos não são movidos para novas sessões. A valida�
 Ao iniciar o sistema, entre com usuário e senha. O acesso inicial é Admin / 123456; altere a senha em Configurações. Apenas o administrador pode cadastrar, inativar operadores, alterar senhas, restaurar backup ou limpar dados. Cadastre nome, usuário e senha de pelo menos seis caracteres e salve as alterações. As senhas são armazenadas como verificadores PBKDF2 com salt, sem texto legível.
 
 A abertura usa o operador conectado. Sair / trocar operador encerra o acesso, mas preserva o caixa aberto. Outro operador precisa entrar com sua própria senha e não pode vender nem movimentar o caixa alheio. O administrador pode fechar caixas pendentes. Trocar a senha invalida os acessos anteriores e exige entrar novamente. O acesso permanece durante a sessão da aba; não integra serviço externo de autenticação.
+
+
+## Etapa 11.2 — estabilização financeira
+
+O catálogo acompanha alterações de produtos na mesma aba e entre abas, sem reiniciar. Novas vendas gravam identificadores de linhas; devoluções distinguem linhas do mesmo produto, inclusive preços diferentes. Vendas antigas recebem identidades derivadas somente durante a leitura, sem regravação.
+
+Vendas, cancelamentos, resoluções, movimentações/fechamento de caixa e restauração compartilham um Web Lock. A baixa exige autorização recente do código, saldo atual e reserva exatamente correspondente aos pagamentos. Falhas após gravar a venda conservam venda e reserva; falhas na restauração conservam o cancelamento e os movimentos. A recuperação ocorre após a entrada do operador, é repetível sem duplicar movimentos e mostra inconsistências em vez de ocultá-las.
+
+`npm test` executa todos os arquivos `tests/*.test.mjs`. `npm run test:ui` executa os três testes de interface com Playwright e Microsoft Edge instalado; inicie o app em `http://127.0.0.1:5173/` antes. `npm run test:all` combina testes de domínio, interface e build. Os navegadores de teste usam contextos isolados; evidências novas ficam em `outputs/etapa-11-2/`.
+
+Consulte [o relatório da Etapa 11.2](docs/etapa-11-2-estabilizacao.md) para diagnóstico, compatibilidade, testes e riscos remanescentes. O bloqueio entre abas e a recuperação compensatória não oferecem transações completas entre chaves do localStorage.

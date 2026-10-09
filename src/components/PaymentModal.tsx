@@ -4,7 +4,7 @@ import { paymentMethodLabels, type SalePayment, type SaleTenderMethod } from '..
 import { calculatePaymentTotals, createSalePayment, formatMoneyInput } from '../utils/payments';
 import { formatMoney, parseMoneyInput } from '../utils/money';
 import { getNextWrappedIndex } from '../utils/keyboardNavigation';
-import { lookupCustomerCredit } from '../services/saleFinancialStorage';
+import { lookupCustomerCredit } from '../services/saleStorage';
 
 type PaymentModalProps = {
   totalInCents: number;
@@ -45,11 +45,11 @@ export function PaymentModal({ totalInCents, payments, onAddPayment, onRemovePay
     return () => { active = false; };
   }, [method, creditReceipt, creditAuthCode]);
   const newPayment: SalePayment | null = enteredInCents === null ? null : method === 'customer_credit'
-    ? verifiedCredit && enteredInCents > 0 && enteredInCents <= pendingInCents && enteredInCents <= verifiedCredit.balanceInCents
+    ? verifiedCredit && enteredInCents > 0 && enteredInCents <= pendingInCents && enteredInCents <= verifiedCredit.balanceInCents - payments.filter((item) => item.customerCreditId === verifiedCredit.id).reduce((sum, item) => sum + item.amountInCents, 0)
       ? { method, amountInCents: enteredInCents, customerCreditId: verifiedCredit.id } : null
     : createSalePayment(method, enteredInCents, pendingInCents);
   const invalidAmount = enteredInCents !== null && method !== 'cash'
-    && (enteredInCents > pendingInCents || (method === 'customer_credit' && !!verifiedCredit && enteredInCents > verifiedCredit.balanceInCents));
+    && (enteredInCents > pendingInCents || (method === 'customer_credit' && !!verifiedCredit && enteredInCents > verifiedCredit.balanceInCents - payments.filter((item) => item.customerCreditId === verifiedCredit.id).reduce((sum, item) => sum + item.amountInCents, 0)));
   const isComplete = payments.length > 0 && pendingInCents === 0;
 
   useEffect(() => {
@@ -89,7 +89,7 @@ export function PaymentModal({ totalInCents, payments, onAddPayment, onRemovePay
         {!isComplete && !addingPayment && payments.length > 0 && <div className="add-payment-prompt"><p>Falta <b>{formatMoney(pendingInCents)}</b> para concluir esta venda. Deseja adicionar outra forma de pagamento?</p><button className="btn secondary" ref={anotherPaymentButtonRef} onClick={() => { setAmountInput(formatMoneyInput(pendingInCents)); setAddingPayment(true); }} type="button">＋ Adicionar outra forma de pagamento</button></div>}
         {!isComplete && addingPayment && <form className="add-payment-form" onSubmit={addPayment}>
           <div className="payment-label">Forma de pagamento</div><div className="paymethods" role="group" aria-label="Forma de pagamento" onKeyDown={handleMethodKeyDown}>{methods.map((item) => <button aria-pressed={method === item.id} autoFocus={item.id === method} data-initial-focus={item.id === method ? 'true' : undefined} className={`method ${method === item.id ? 'selected' : ''}`} data-method={item.id} key={item.id} onClick={() => selectMethod(item.id)} type="button"><span aria-hidden="true">{item.icon}</span><br />{item.label}</button>)}</div>
-          {method === 'customer_credit' && <div className="customer-credit-fields"><label className="field" htmlFor="customer-credit-receipt">Comprovante ou venda original<input autoComplete="off" id="customer-credit-receipt" onChange={(event) => setCreditReceipt(event.target.value)} placeholder="CR-... ou número da venda" value={creditReceipt} /></label><label className="field" htmlFor="customer-credit-code">Código de autorização<input autoComplete="off" id="customer-credit-code" onChange={(event) => setCreditAuthCode(event.target.value)} placeholder="Código impresso no comprovante" value={creditAuthCode} /></label>{verifiedCredit && <p>Saldo disponível: <b>{formatMoney(verifiedCredit.balanceInCents)}</b></p>}{creditReceipt && creditAuthCode && !verifiedCredit && <p className="payment-error" role="alert">Comprovante ou código inválido.</p>}</div>}
+          {method === 'customer_credit' && <div className="customer-credit-fields"><label className="field" htmlFor="customer-credit-receipt">Comprovante ou venda original<input autoComplete="off" id="customer-credit-receipt" onChange={(event) => { setVerifiedCredit(undefined); setCreditReceipt(event.target.value); }} placeholder="CR-... ou número da venda" value={creditReceipt} /></label><label className="field" htmlFor="customer-credit-code">Código de autorização<input autoComplete="off" id="customer-credit-code" onChange={(event) => { setVerifiedCredit(undefined); setCreditAuthCode(event.target.value); }} placeholder="Código impresso no comprovante" value={creditAuthCode} /></label>{verifiedCredit && <p>Saldo disponível: <b>{formatMoney(verifiedCredit.balanceInCents)}</b></p>}{creditReceipt && creditAuthCode && !verifiedCredit && <p className="payment-error" role="alert">Comprovante ou código inválido.</p>}</div>}
           <div className="field"><label htmlFor="payment-amount">{method === 'cash' ? 'Valor recebido' : 'Valor'}</label><input ref={amountInputRef} autoComplete="off" id="payment-amount" inputMode="decimal" onChange={(event) => setAmountInput(event.target.value)} placeholder="Ex.: 30,00" value={amountInput} /></div>
           {invalidAmount ? <p className="payment-error" role="alert">O valor excede o saldo pendente ou o crédito disponível.</p> : method === 'cash' && newPayment ? <div className="cash-preview"><span>Aplicado à venda <b>{formatMoney(newPayment.amountInCents)}</b></span><span>Troco <b>{formatMoney(newPayment.changeInCents ?? 0)}</b></span></div> : null}
           <button className="btn secondary add-payment-submit" disabled={!newPayment} type="submit">Adicionar pagamento</button>

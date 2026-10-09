@@ -15,6 +15,8 @@ class MemoryStorage {
 }
 globalThis.localStorage = new MemoryStorage();
 globalThis.sessionStorage = new MemoryStorage();
+let lockTail = Promise.resolve();
+Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { locks: { request: (_name, _options, callback) => { const next = lockTail.then(callback); lockTail = next.catch(() => {}); return next; } } } });
 
 const vite = await createServer({ configFile: false, root: process.cwd(), server: { middlewareMode: true, hmr: false }, appType: 'custom' });
 const cash = await vite.ssrLoadModule('/src/utils/cash.ts');
@@ -37,7 +39,7 @@ const sale = (method, amountInCents, overrides = {}) => ({
 const draft = (sales = [], movements = [], session = opened()) => cash.getCashReconciliationDraft(session, movements, sales);
 
 for (const method of ['cash', 'pix', 'debit', 'credit']) {
-  test('Apura corretamente venda somente em ' + method, () => {
+  test('Apura corretamente venda somente em ' + method, async () => {
     const result = draft([sale(method, 1250)]);
     assert.equal(result.paymentTotalsInCents[method], 1250);
     assert.equal(result.expectedByMethodInCents[method], method === 'cash' ? 1250 : 1250);
@@ -45,19 +47,19 @@ for (const method of ['cash', 'pix', 'debit', 'credit']) {
   });
 }
 
-test('Distribui pagamento misto exclusivamente pelas modalidades', () => {
+test('Distribui pagamento misto exclusivamente pelas modalidades', async () => {
   const result = draft([sale('cash', 5000, { payments: [payment('cash', 2000, { amountReceivedInCents: 3000, changeInCents: 1000 }), payment('pix', 3000)] })]);
   assert.deepEqual(result.paymentTotalsInCents, { cash: 2000, pix: 3000, debit: 0, credit: 0 });
   assert.deepEqual(result.expectedByMethodInCents, { cash: 2000, pix: 3000, debit: 0, credit: 0 });
 });
 
-test('Troco não infla recebimento em dinheiro', () => {
+test('Troco não infla recebimento em dinheiro', async () => {
   const result = draft([sale('cash', 2000, { payments: [payment('cash', 2000, { amountReceivedInCents: 3000, changeInCents: 1000 })] })]);
   assert.equal(result.paymentTotalsInCents.cash, 2000);
   assert.equal(result.expectedByMethodInCents.cash, 2000);
 });
 
-test('Fundo inicial, suprimento e sangria alteram somente o dinheiro físico', () => {
+test('Fundo inicial, suprimento e sangria alteram somente o dinheiro físico', async () => {
   const movements = [
     { id: 's', cashSessionId: 'session-1', type: 'supply', amountInCents: 5000, createdAt: '2026-10-08T12:00:00Z' },
     { id: 'w', cashSessionId: 'session-1', type: 'withdrawal', amountInCents: 1200, createdAt: '2026-10-08T13:00:00Z' },
@@ -68,175 +70,175 @@ test('Fundo inicial, suprimento e sangria alteram somente o dinheiro físico', (
   assert.equal(result.totalNetSalesInCents, 11000);
 });
 
-test('Conferência sem diferença e com zero válido', () => {
+test('Conferência sem diferença e com zero válido', async () => {
   const d = draft([]);
   const result = cash.createCashReconciliation(d, { cash: 0, pix: 0, debit: 0, credit: 0 });
   assert.equal(result.methods.cash.differenceInCents, 0);
   assert.equal(result.methods.pix.countedInCents, 0);
 });
-test('Registra falta', () => {
+test('Registra falta', async () => {
   const result = cash.createCashReconciliation(draft([sale('pix', 1000)]), { cash: 0, pix: 700, debit: 0, credit: 0 });
   assert.equal(result.methods.pix.differenceInCents, -300);
 });
-test('Registra sobra', () => {
+test('Registra sobra', async () => {
   const result = cash.createCashReconciliation(draft([sale('debit', 1000)]), { cash: 0, pix: 0, debit: 1500, credit: 0 });
   assert.equal(result.methods.debit.differenceInCents, 500);
 });
-test('Mantém divergências simultâneas separadas', () => {
+test('Mantém divergências simultâneas separadas', async () => {
   const result = cash.createCashReconciliation(draft([sale('pix', 1000), sale('credit', 2000, { id: 'sale-2', payments: [payment('credit', 2000)] })]), { cash: 0, pix: 800, debit: 0, credit: 2300 });
   assert.equal(result.methods.pix.differenceInCents, -200);
   assert.equal(result.methods.credit.differenceInCents, 300);
 });
-test('Venda cancelada sem pagamentos registrados não cria recebimento', () => {
+test('Venda cancelada sem pagamentos registrados não cria recebimento', async () => {
   const result = draft([sale('cash', 5000, { status: 'cancelled', payments: [] })]);
   assert.equal(result.paymentTotalsInCents.cash, 0);
   assert.equal(result.totalNetSalesInCents, 0);
 });
-test('Cancelamento sem evento de estorno mantém pagamentos registrados e exclui venda do líquido', () => {
+test('Cancelamento sem evento de estorno mantém pagamentos registrados e exclui venda do líquido', async () => {
   const result = draft([sale('cash', 2500, { status: 'cancelled' })]);
   assert.equal(result.paymentTotalsInCents.cash, 2500);
   assert.equal(result.totalNetSalesInCents, 0);
 });
-test('Estorno pendente/concluído ou realizado em sessão posterior não é inferido sem modelo de estornos', () => {
+test('Estorno pendente/concluído ou realizado em sessão posterior não é inferido sem modelo de estornos', async () => {
   const cancelled = sale('pix', 4200, { status: 'cancelled' });
   const result = draft([cancelled]);
   assert.equal(result.paymentTotalsInCents.pix, 4200);
   assert.equal(result.expectedByMethodInCents.pix, 4200);
 });
-test('Sessão sem vendas apura saldo inicial e movimentações sem faturamento', () => {
+test('Sessão sem vendas apura saldo inicial e movimentações sem faturamento', async () => {
   const result = draft([], [], opened(5000));
   assert.equal(result.totalNetSalesInCents, 0);
   assert.equal(result.expectedByMethodInCents.cash, 5000);
 });
 
-test('Fecha uma única vez e salva snapshot imutável com quatro conferências', () => {
-  const first = storage.openCashSession(1000, 'operator-a');
+test('Fecha uma única vez e salva snapshot imutável com quatro conferências', async () => {
+  const first = await storage.openCashSession(1000, 'operator-a');
   const session = first.sessions[0];
   const d = cash.getCashReconciliationDraft(session, first.movements, []);
-  const closed = storage.closeCashSession(session.id, { cash: 1000, pix: 0, debit: 0, credit: 0 }, d.sourceFingerprint);
+  const closed = await storage.closeCashSession(session.id, { cash: 1000, pix: 0, debit: 0, credit: 0 }, d.sourceFingerprint);
   assert.equal(closed.sessions[0].reconciliation.methods.cash.countedInCents, 1000);
   assert.ok(closed.sessions[0].closedAt);
-  assert.throws(() => storage.closeCashSession(session.id, { cash: 1000, pix: 0, debit: 0, credit: 0 }, d.sourceFingerprint), /fechado|aberto/);
+  await assert.rejects(() => storage.closeCashSession(session.id, { cash: 1000, pix: 0, debit: 0, credit: 0 }, d.sourceFingerprint), /fechado|aberto/);
 });
-test('Exige nova revisão se os dados de origem mudam', () => {
-  const openedData = storage.openCashSession(0, 'operator-a');
+test('Exige nova revisão se os dados de origem mudam', async () => {
+  const openedData = await storage.openCashSession(0, 'operator-a');
   const session = openedData.sessions[0];
-  assert.throws(() => storage.closeCashSession(session.id, { cash: 0, pix: 0, debit: 0, credit: 0 }, 'stale'), /mudaram/);
+  await assert.rejects(() => storage.closeCashSession(session.id, { cash: 0, pix: 0, debit: 0, credit: 0 }, 'stale'), /mudaram/);
   assert.equal(storage.getOpenCashSession(storage.loadCashData()).id, session.id);
 });
-test('Revalida as vendas salvas imediatamente antes de fechar', () => {
-  const openedData = storage.openCashSession(0, 'operator-a'), session = openedData.sessions[0];
+test('Revalida as vendas salvas imediatamente antes de fechar', async () => {
+  const openedData = await storage.openCashSession(0, 'operator-a'), session = openedData.sessions[0];
   const reviewed = cash.getCashReconciliationDraft(session, [], []);
   const changedSale = sale('pix', 500, { cashSessionId: session.id, items: [{ productId: 'p1', productName: 'Produto', unitPriceInCents: 500, quantity: 1, subtotalInCents: 500 }] });
   localStorage.setItem('raiz-pdv:completed-sales', JSON.stringify([changedSale]));
-  assert.throws(() => storage.closeCashSession(session.id, { cash: 0, pix: 0, debit: 0, credit: 0 }, reviewed.sourceFingerprint), /mudaram/);
+  await assert.rejects(() => storage.closeCashSession(session.id, { cash: 0, pix: 0, debit: 0, credit: 0 }, reviewed.sourceFingerprint), /mudaram/);
   assert.equal(storage.getOpenCashSession(storage.loadCashData()).id, session.id);
 });
-test('Falha de gravação não fecha a sessão', () => {
-  const openedData = storage.openCashSession(0, 'operator-a');
+test('Falha de gravação não fecha a sessão', async () => {
+  const openedData = await storage.openCashSession(0, 'operator-a');
   const session = openedData.sessions[0], d = cash.getCashReconciliationDraft(session, [], []);
   localStorage.failWrites = true;
-  assert.throws(() => storage.closeCashSession(session.id, { cash: 0, pix: 0, debit: 0, credit: 0 }, d.sourceFingerprint), /armazenamento local/);
+  await assert.rejects(() => storage.closeCashSession(session.id, { cash: 0, pix: 0, debit: 0, credit: 0 }, d.sourceFingerprint), /armazenamento local/);
   localStorage.failWrites = false;
   assert.equal(storage.getOpenCashSession(storage.loadCashData()).id, session.id);
 });
-test('Dados de vendas inválidos bloqueiam fechamento', () => {
-  const openedData = storage.openCashSession(0, 'operator-a'), session = openedData.sessions[0];
+test('Dados de vendas inválidos bloqueiam fechamento', async () => {
+  const openedData = await storage.openCashSession(0, 'operator-a'), session = openedData.sessions[0];
   const d = cash.getCashReconciliationDraft(session, [], []);
   localStorage.setItem('raiz-pdv:completed-sales', '{');
-  assert.throws(() => storage.closeCashSession(session.id, { cash: 0, pix: 0, debit: 0, credit: 0 }, d.sourceFingerprint));
+  await assert.rejects(() => storage.closeCashSession(session.id, { cash: 0, pix: 0, debit: 0, credit: 0 }, d.sourceFingerprint));
   assert.equal(storage.getOpenCashSession(storage.loadCashData()).id, session.id);
 });
-test('Histórico legado sem reconciliação eletrônica continua carregável', () => {
+test('Histórico legado sem reconciliação eletrônica continua carregável', async () => {
   localStorage.setItem('raiz-pdv:cash', JSON.stringify({
     sessions: [{ id: 'old', openedAt: '2025-01-01T10:00:00.000Z', openingAmountInCents: 2000, closedAt: '2025-01-01T18:00:00.000Z', countedAmountInCents: 2700, expectedAmountInCents: 2500, differenceInCents: 200, status: 'closed' }],
     movements: [],
   }));
   assert.equal(storage.loadCashData().sessions[0].reconciliation, undefined);
 });
-test('Rejeita valores de conferência negativos ou não inteiros seguros', () => {
+test('Rejeita valores de conferência negativos ou não inteiros seguros', async () => {
   assert.throws(() => cash.createCashReconciliation(draft([]), { cash: -1, pix: 0, debit: 0, credit: 0 }));
   assert.throws(() => cash.createCashReconciliation(draft([]), { cash: Number.MAX_SAFE_INTEGER + 1, pix: 0, debit: 0, credit: 0 }));
 });
 
 
-test('Entrada exige operador ativo e registra identidade e data; evita caixa duplicado', (t) => {
+test('Entrada exige operador ativo e registra identidade e data; evita caixa duplicado', async (t) => {
   t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-08T15:00:00Z') });
-  assert.throws(() => storage.openCashSession(0), /operador ativo|operador que entrou|Entre/);
-  assert.throws(() => storage.openCashSession(0, 'unknown'), /operador ativo|operador que entrou|Entre/);
-  const next = storage.openCashSession(500, 'operator-a');
+  await assert.rejects(() => storage.openCashSession(0), /operador ativo|operador que entrou|Entre/);
+  await assert.rejects(() => storage.openCashSession(0, 'unknown'), /operador ativo|operador que entrou|Entre/);
+  const next = await storage.openCashSession(500, 'operator-a');
   const session = next.sessions[0];
   assert.equal(session.operatorName, 'Ana'); assert.equal(session.operatorId, 'operator-a');
   assert.equal(session.businessDate, '2026-10-08'); assert.equal(session.openedAt, '2026-10-08T15:00:00.000Z');
   operatorAuth('operator-b');
-  assert.throws(() => storage.openCashSession(0, 'operator-b'), /Já existe/);
+  await assert.rejects(() => storage.openCashSession(0, 'operator-b'), /Já existe/);
 });
 
-test('Virada de dia bloqueia operador pendente e venda antiga; outro operador pode abrir hoje', (t) => {
+test('Virada de dia bloqueia operador pendente e venda antiga; outro operador pode abrir hoje', async (t) => {
   t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-09T02:59:00Z') });
-  const old = storage.openCashSession(1000, 'operator-a').sessions[0];
+  const old = (await storage.openCashSession(1000, 'operator-a')).sessions[0];
   t.mock.timers.tick(120000);
   assert.equal(storage.getOpenCashSession(storage.loadCashData()), undefined);
   assert.equal(storage.getPendingCashSessions(storage.loadCashData()).length, 1);
-  assert.throws(() => storage.openCashSession(0, 'operator-a'), /pendente/);
-  assert.throws(() => storage.addCashMovement(old.id, 'supply', 100), /hoje/);
+  await assert.rejects(() => storage.openCashSession(0, 'operator-a'), /pendente/);
+  await assert.rejects(() => storage.addCashMovement(old.id, 'supply', 100), /hoje/);
   const item = { product: { id: 'p', name: 'Produto', priceInCents: 100, category: 'Geral', active: true, emoji: 'X' }, quantity: 1, unitPriceInCents: 100, subtotalInCents: 100 };
-  assert.throws(() => saleStorage.saveCompletedSale([item], 100, [{ method: 'pix', amountInCents: 100 }], old.id), /hoje/);
+  await assert.rejects(() => saleStorage.saveCompletedSale([item], 100, [{ method: 'pix', amountInCents: 100 }], old.id), /hoje/);
   operatorAuth('operator-b');
-  const current = storage.openCashSession(500, 'operator-b').sessions[0];
+  const current = (await storage.openCashSession(500, 'operator-b')).sessions[0];
   assert.equal(current.businessDate, '2026-10-09'); assert.equal(current.operatorName, 'Bruno');
-  const sale = saleStorage.saveCompletedSale([item], 100, [{ method: 'pix', amountInCents: 100 }], current.id);
+  const sale = await saleStorage.saveCompletedSale([item], 100, [{ method: 'pix', amountInCents: 100 }], current.id);
   assert.equal(sale.cashSessionId, current.id);
   const priorDraft = cash.getCashReconciliationDraft(old, [], saleStorage.listSales());
   assert.equal(priorDraft.saleCount, 0); assert.equal(priorDraft.expectedByMethodInCents.pix, 0);
   adminAuth();
-  const closed = storage.closeCashSession(old.id, priorDraft.expectedByMethodInCents, priorDraft.sourceFingerprint);
+  const closed = await storage.closeCashSession(old.id, priorDraft.expectedByMethodInCents, priorDraft.sourceFingerprint);
   assert.equal(closed.sessions.find((session) => session.id === old.id).closedAt, '2026-10-09T03:01:00.000Z');
   assert.equal(storage.getOpenCashSession(closed).id, current.id);
 });
 
-test('Fechar pendência libera o mesmo operador sem alterar sessões ou vendas anteriores', (t) => {
+test('Fechar pendência libera o mesmo operador sem alterar sessões ou vendas anteriores', async (t) => {
   t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-08T15:00:00Z') });
-  const old = storage.openCashSession(1000, 'operator-a').sessions[0];
+  const old = (await storage.openCashSession(1000, 'operator-a')).sessions[0];
   t.mock.timers.tick(86400000);
   const priorDraft = cash.getCashReconciliationDraft(old, [], []);
-  storage.closeCashSession(old.id, priorDraft.expectedByMethodInCents, priorDraft.sourceFingerprint);
-  const next = storage.openCashSession(2000, 'operator-a');
+  await storage.closeCashSession(old.id, priorDraft.expectedByMethodInCents, priorDraft.sourceFingerprint);
+  const next = await storage.openCashSession(2000, 'operator-a');
   assert.equal(next.sessions[0].businessDate, '2026-10-09');
   assert.equal(next.sessions[1].openingAmountInCents, 1000);
   assert.equal(next.sessions[1].status, 'closed');
 });
 
-test('Caixa legado pendente sem operador continua fechável e não recebe identidade inventada', (t) => {
+test('Caixa legado pendente sem operador continua fechável e não recebe identidade inventada', async (t) => {
   t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-09T15:00:00Z') });
   localStorage.setItem(storage.CASH_STORAGE_KEY, JSON.stringify({ sessions: [opened()], movements: [] }));
   operatorAuth('operator-b');
-  assert.throws(() => storage.openCashSession(0, 'operator-b'), /sem operador/);
+  await assert.rejects(() => storage.openCashSession(0, 'operator-b'), /sem operador/);
   adminAuth();
   const priorDraft = draft();
-  const next = storage.closeCashSession('session-1', priorDraft.expectedByMethodInCents, priorDraft.sourceFingerprint);
+  const next = await storage.closeCashSession('session-1', priorDraft.expectedByMethodInCents, priorDraft.sourceFingerprint);
   assert.equal(next.sessions[0].operatorId, undefined);
   assert.equal(next.sessions[0].status, 'closed');
 });
 
-test('Backup inclui operadores e caixas pendentes/atuais sem misturar ou reconstruir histórico', (t) => {
+test('Backup inclui operadores e caixas pendentes/atuais sem misturar ou reconstruir histórico', async (t) => {
   t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-08T15:00:00Z') });
-  storage.openCashSession(1000, 'operator-a'); t.mock.timers.tick(86400000); operatorAuth('operator-b'); storage.openCashSession(2000, 'operator-b');
+  await storage.openCashSession(1000, 'operator-a'); t.mock.timers.tick(86400000); operatorAuth('operator-b'); await storage.openCashSession(2000, 'operator-b');
   const backup = backupStorage.parseBackupJson(backupStorage.createBackupJson()).backup;
   assert.equal(backup.data.settings.operators.length, 2);
   assert.equal(backup.data.cash.sessions.length, 2);
   assert.equal(backup.data.cash.sessions[0].operatorName, 'Bruno');
   adminAuth();
-  backupStorage.restoreBackup(backup);
+  await backupStorage.restoreBackup(backup);
   assert.equal(storage.getPendingCashSessions(storage.loadCashData()).length, 1);
 });
 
-test('Cadastro rejeita operadores duplicados e operador inativo não abre caixa', () => {
+test('Cadastro rejeita operadores duplicados e operador inativo não abre caixa', async () => {
   adminAuth();
   const settings = settingsStorage.loadSettings();
   assert.throws(() => settingsStorage.saveSettings({ ...settings, operators: [...settings.operators, { id: 'c', name: 'Ana', active: true, passwordDigest: access.DEFAULT_ADMIN.passwordDigest }] }), /válido/);
   settingsStorage.saveSettings({ ...settings, operators: settings.operators.map((operator) => ({ ...operator, active: false })) });
-  assert.throws(() => storage.openCashSession(0, 'operator-a'), /operador ativo|operador que entrou|Entre/);
+  await assert.rejects(() => storage.openCashSession(0, 'operator-a'), /operador ativo|operador que entrou|Entre/);
 });
 
 
@@ -250,10 +252,10 @@ test('Admin padrão autentica com 123456; senha incorreta não cria sessão', as
   access.logoutOperator(); assert.equal(access.getCurrentOperator(), null);
 });
 
-test('Operador autenticado não cadastra usuários nem abre caixa no nome de outro', () => {
+test('Operador autenticado não cadastra usuários nem abre caixa no nome de outro', async () => {
   assert.throws(() => settingsStorage.saveSettings(settingsStorage.loadSettings()), /administrador/);
-  assert.throws(() => storage.openCashSession(0, 'operator-b'), /operador que entrou/);
-  sessionStorage.clear(); assert.throws(() => storage.openCashSession(0, 'operator-a'), /Entre/);
+  await assert.rejects(() => storage.openCashSession(0, 'operator-b'), /operador que entrou/);
+  sessionStorage.clear(); await assert.rejects(() => storage.openCashSession(0, 'operator-a'), /Entre/);
 });
 
 test('Senha personalizada protegida invalida sessão antiga e aceita só a nova senha', async () => {
@@ -268,7 +270,7 @@ test('Senha personalizada protegida invalida sessão antiga e aceita só a nova 
   assert.equal(access.getCurrentOperator().role, 'admin');
 });
 
-test('Administrador não pode ser desativado como último administrador; migração mantém operadores', () => {
+test('Administrador não pode ser desativado como último administrador; migração mantém operadores', async () => {
   adminAuth();
   const initialized = settingsStorage.initializeOperatorAccess();
   assert.equal(initialized.operators.find((operator) => operator.id === 'operator-a').name, 'Ana');

@@ -34,6 +34,7 @@ export function saveProducts(products: Product[]): void {
   if (!products.every(isProduct)) throw new Error('Os dados dos produtos são inválidos.');
   try {
     localStorage.setItem(PRODUCTS_STORAGE_KEY, JSON.stringify(products));
+    if (typeof window !== 'undefined') window.dispatchEvent(new Event('raiz-pdv:products-changed'));
   } catch {
     throw new Error('Não foi possível salvar os produtos no armazenamento local.');
   }

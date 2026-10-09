@@ -20,7 +20,7 @@ export type MerchandiseReturn = {
   saleNumber: number;
   createdAt: string;
   cashSessionId?: string;
-  items: Array<{ productId: string; productName: string; quantity: number; amountInCents: number }>;
+  items: Array<{ lineId?: string; unitPriceInCents?: number; productId: string; productName: string; quantity: number; amountInCents: number }>;
   amountInCents: number;
 };
 

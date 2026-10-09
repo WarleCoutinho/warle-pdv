@@ -1,5 +1,6 @@
 const { chromium } = require('playwright');
 const assert = require('node:assert/strict');
+require('node:fs').mkdirSync('outputs/etapa-11-2', { recursive: true });
 (async () => {
   const browser = await chromium.launch({ channel: 'msedge', headless: true });
   try {
@@ -24,7 +25,7 @@ const assert = require('node:assert/strict');
     await page.getByRole('heading', { name: '2. Como devolver o valor?' }).waitFor();
     assert.equal(await page.locator('#settlement-customer_credit').inputValue(), '5,00');
     assert.equal(await page.locator('.settlement-line').count(), 1);
-    await page.screenshot({ path: 'outputs/devolucao-simplificada.png' });
+    await page.screenshot({ path: 'outputs/etapa-11-2/devolucao-simplificada.png' });
     await page.getByRole('button', { name: 'Gerar crédito do cliente', exact: true }).click();
     await page.getByRole('heading', { name: 'Crédito emitido', exact: true }).waitFor();
     assert.equal(await page.locator('body > .credit-receipt-overlay').count(), 1);
@@ -40,8 +41,8 @@ const assert = require('node:assert/strict');
     assert.equal(result.slips.length, 2);
     for (const slip of result.slips) { assert.equal(slip.display, 'block'); assert.match(slip.text, /CRÉDITO DE CLIENTE/); assert.match(slip.text, /5,00/); assert.match(slip.text, /CÓDIGO DE AUTORIZAÇÃO/); }
     await page.evaluate(() => document.body.classList.add('printing-credit'));
-    await page.screenshot({ path: 'outputs/credito-impressao.png', fullPage: true });
-    await page.pdf({ path: 'outputs/credito-impressao.pdf', preferCSSPageSize: true });
+    await page.screenshot({ path: 'outputs/etapa-11-2/credito-impressao.png', fullPage: true });
+    await page.pdf({ path: 'outputs/etapa-11-2/credito-impressao.pdf', preferCSSPageSize: true });
     await page.evaluate(() => document.body.classList.remove('printing-credit'));
     await page.emulateMedia({ media: 'screen' });
     await page.getByRole('button', { name: 'Fechar comprovante de crédito', exact: true }).focus();
@@ -104,7 +105,7 @@ const assert = require('node:assert/strict');
     });
     await page.waitForFunction(() => document.querySelector('.analytics-stat-green strong')?.textContent.includes('5,00'));
     assert.match(await page.locator('.analytics-stat-blue strong').innerText(), /^1$/);
-    await page.screenshot({ path: 'outputs/dashboard-financeiro.png' });
+    await page.screenshot({ path: 'outputs/etapa-11-2/dashboard-financeiro.png' });
     await other.close();
     console.log('PASS: impressão e Esc; dashboard e relatório com faturamento original e devoluções separadas; crédito nos pagamentos; atualização na mesma aba e entre abas; cancelamento.');
   } finally { await browser.close(); }

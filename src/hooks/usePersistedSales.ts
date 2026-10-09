@@ -34,10 +34,10 @@ export function usePersistedSales() {
     window.addEventListener('raiz-pdv:data-changed', refreshSales);
     window.addEventListener('focus', refreshSales);
     const timer = window.setInterval(refreshSales, 60000);
-    return () => window.removeEventListener('storage', syncSales);
+    return () => { window.removeEventListener('storage', syncSales);
       window.removeEventListener('raiz-pdv:data-changed', refreshSales);
       window.removeEventListener('focus', refreshSales);
-      window.clearInterval(timer);
+      window.clearInterval(timer); };
   }, []);
 
   return { sales, financial, referenceDate, loading, error };

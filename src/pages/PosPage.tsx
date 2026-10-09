@@ -5,7 +5,7 @@ import { PaymentModal } from '../components/PaymentModal';
 import { PosHeader } from '../components/PosHeader';
 import { ProductCatalog } from '../components/ProductCatalog';
 import { loadDraftCart, saveDraftCart } from '../services/cartStorage';
-import { saveCompletedSale, saveCompletedSaleWithCustomerCredit } from '../services/saleStorage';
+import { saveCompletedSale, saveCompletedSaleWithCustomerCredit, SaleCreditFinalizationPendingError } from '../services/saleStorage';
 import { getOpenCashSession, loadCashData } from '../services/cashStorage';
 import type { CartItem, Product } from '../types/product';
 import type { SalePayment } from '../types/payment';
@@ -69,7 +69,7 @@ export function PosPage({ onNavigate, products, settings, cashSessionId, cashSes
 
   const categories = useMemo(
     () => ['Todos', ...new Set(products.filter((product) => product.active).map((product) => product.category))],
-    [],
+    [products],
   );
   const filteredProducts = useMemo(() => {
     const normalizedSearch = search.trim().toLocaleLowerCase('pt-BR');
@@ -78,7 +78,8 @@ export function PosPage({ onNavigate, products, settings, cashSessionId, cashSes
       const matchesSearch = product.name.toLocaleLowerCase('pt-BR').includes(normalizedSearch);
       return product.active && matchesCategory && matchesSearch;
     });
-  }, [category, search]);
+  }, [category, search, products]);
+  useEffect(() => { if (!categories.includes(category)) setCategory('Todos'); }, [categories, category]);
   const totalInCents = sumMoney(cart.map((item) => item.subtotalInCents));
 
   useEffect(() => {
@@ -123,10 +124,12 @@ export function PosPage({ onNavigate, products, settings, cashSessionId, cashSes
     try {
       const sale = payments.some((payment) => payment.method === 'customer_credit')
         ? await saveCompletedSaleWithCustomerCredit(cart, totalInCents, payments, cashSessionId)
-        : saveCompletedSale(cart, totalInCents, payments, cashSessionId);
+        : await saveCompletedSale(cart, totalInCents, payments, cashSessionId);
       saveDraftCart([]); setCompletedSale(sale); setShowPayment(false); setPayments([]); dispatch({ type: 'clear' });
     } catch (error) {
-      finalizingSale.current = false;
+      if (error instanceof SaleCreditFinalizationPendingError) {
+        saveDraftCart([]); dispatch({ type: 'clear' }); setPayments([]); setShowPayment(false);
+      } else finalizingSale.current = false;
       setPaymentError(error instanceof Error ? error.message : 'Não foi possível salvar a venda. Verifique o armazenamento local e tente novamente.');
     }
   }
@@ -149,6 +152,7 @@ export function PosPage({ onNavigate, products, settings, cashSessionId, cashSes
             </div>
             <span className="open-pill">● Caixa {cashSessionLabel}</span>
           </div>
+          {paymentError && !showPayment && <p className="sale-save-error" role="alert">{paymentError}</p>}
           <div className="pos">
             <ProductCatalog
               categories={categories}

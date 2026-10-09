@@ -5,16 +5,21 @@ import { createServer } from 'vite';
 class MemoryStorage {
   data = new Map();
   failKeyOnce = null;
+  failPlan = new Map();
+  failOnWrites(key, positions) { this.failPlan.set(key,{positions,count:0}); }
   getItem(key) { return this.data.has(key) ? this.data.get(key) : null; }
   setItem(key, value) {
+    const plan=this.failPlan.get(key); if(plan && plan.positions.includes(++plan.count)) throw new Error('quota');
     if (this.failKeyOnce === key) { this.failKeyOnce = null; throw new Error('quota'); }
     this.data.set(key, String(value));
   }
   removeItem(key) { this.data.delete(key); }
-  clear() { this.data.clear(); this.failKeyOnce = null; }
+  clear() { this.data.clear(); this.failKeyOnce = null; this.failPlan.clear(); }
 }
 globalThis.localStorage = new MemoryStorage();
 globalThis.sessionStorage = new MemoryStorage();
+let lockTail = Promise.resolve();
+Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { locks: { request: (_name, _options, callback) => { const next = lockTail.then(callback); lockTail = next.catch(() => {}); return next; } } } });
 const vite = await createServer({ configFile: false, root: process.cwd(), server: { middlewareMode: true, hmr: false }, appType: 'custom' });
 const backupService = await vite.ssrLoadModule('/src/services/backupStorage.ts');
 const cash = await vite.ssrLoadModule('/src/utils/cash.ts');
@@ -59,7 +64,7 @@ function dataSet(name) {
   return { products: [product('p1', name)], settings: settings(name), ...financial };
 }
 
-test('Exporta versão, data, dados financeiros e não inclui o carrinho temporário', () => {
+test('Exporta versão, data, dados financeiros e não inclui o carrinho temporário', async () => {
   const data = dataSet('Loja atual');
   setData(data);
   localStorage.setItem(keys.cart, '[{"rascunho":true}]');
@@ -75,14 +80,14 @@ test('Exporta versão, data, dados financeiros e não inclui o carrinho temporá
   assert.deepEqual(parsed.backup.data.financial.credits, []);
 });
 
-test('Restaura arquivo válido com cópia de segurança e remove o carrinho antigo', () => {
+test('Restaura arquivo válido com cópia de segurança e remove o carrinho antigo', async () => {
   const incoming = dataSet('Loja do backup');
   setData(incoming);
   const candidate = backupService.parseBackupJson(backupService.createBackupJson()).backup;
   const old = { ...dataSet('Loja antes'), sales: [], cash: { sessions: [], movements: [] } };
   setData(old);
   localStorage.setItem(keys.cart, 'rascunho');
-  backupService.restoreBackup(candidate);
+  await backupService.restoreBackup(candidate);
   assert.deepEqual(JSON.parse(localStorage.getItem(keys.products)), incoming.products);
   assert.deepEqual(JSON.parse(localStorage.getItem(keys.settings)), incoming.settings);
   assert.deepEqual(JSON.parse(localStorage.getItem(keys.sales)), incoming.sales);
@@ -92,7 +97,7 @@ test('Restaura arquivo válido com cópia de segurança e remove o carrinho anti
   assert.equal(backupService.parseBackupJson(localStorage.getItem(keys.safety)).backup.data.settings.storeName, 'Loja antes');
 });
 
-test('Rejeita JSON inválido, versão incompatível, checksum incorreto e registro inválido', () => {
+test('Rejeita JSON inválido, versão incompatível, checksum incorreto e registro inválido', async () => {
   assert.throws(() => backupService.parseBackupJson('{'), /JSON válido/);
   const data = dataSet('Loja');
   setData(data);
@@ -103,7 +108,7 @@ test('Rejeita JSON inválido, versão incompatível, checksum incorreto e regist
   assert.throws(() => backupService.parseBackupJson(JSON.stringify(valid)), /lista de produtos do backup é inválida/);
 });
 
-test('Falha durante a gravação reverte todos os dados e conserva a cópia anterior', () => {
+test('Falha durante a gravação reverte todos os dados e conserva a cópia anterior', async () => {
   setData(dataSet('Backup recebido'));
   const incoming = backupService.parseBackupJson(backupService.createBackupJson()).backup;
   const old = { ...dataSet('Loja preservada'), sales: [], cash: { sessions: [], movements: [] } };
@@ -111,43 +116,43 @@ test('Falha durante a gravação reverte todos os dados e conserva a cópia ante
   localStorage.setItem(keys.cart, 'carrinho-preservado');
   const rawBefore = new Map([keys.products, keys.settings, keys.sales, keys.cash, keys.financial, keys.cart].map((key) => [key, localStorage.getItem(key)]));
   localStorage.failKeyOnce = keys.sales;
-  assert.throws(() => backupService.restoreBackup(incoming), /dados anteriores foram preservados/);
+  await assert.rejects(() => backupService.restoreBackup(incoming), /dados anteriores foram preservados/);
   for (const [key, value] of rawBefore) assert.equal(localStorage.getItem(key), value, `valor original da chave ${key}`);
   assert.equal(backupService.parseBackupJson(localStorage.getItem(keys.safety)).backup.data.settings.storeName, 'Loja preservada');
 });
 
 
-test('Navegação de opções com setas percorre e envolve lista de resultados/formas de pagamento', () => {
+test('Navegação de opções com setas percorre e envolve lista de resultados/formas de pagamento', async () => {
   assert.equal(keyboard.getNextWrappedIndex(-1, 1, 3), 0);
   assert.equal(keyboard.getNextWrappedIndex(0, -1, 3), 2);
   assert.equal(keyboard.getNextWrappedIndex(2, 1, 3), 0);
   assert.equal(keyboard.getNextWrappedIndex(0, -1, 0), -1);
 });
 
-test('Navegação de itens do carrinho não ultrapassa o primeiro ou último item', () => {
+test('Navegação de itens do carrinho não ultrapassa o primeiro ou último item', async () => {
   assert.equal(keyboard.getAdjacentIndex(0, -1, 3), -1);
   assert.equal(keyboard.getAdjacentIndex(0, 1, 3), 1);
   assert.equal(keyboard.getAdjacentIndex(2, 1, 3), -1);
 });
 
 
-test('Permite reparar um conjunto local corrompido após guardar os valores brutos anteriores', () => {
+test('Permite reparar um conjunto local corrompido após guardar os valores brutos anteriores', async () => {
   setData({ ...dataSet('Antes da corrupção'), sales: [], cash: { sessions: [], movements: [] } });
   const incoming = backupService.parseBackupJson(backupService.createBackupJson()).backup;
   localStorage.setItem(keys.sales, '{json quebrado');
-  backupService.restoreBackup(incoming);
+  await backupService.restoreBackup(incoming);
   const safety = JSON.parse(localStorage.getItem(keys.safety));
   assert.equal(safety.format, 'raiz-pdv-recovery-snapshot');
   assert.equal(safety.storage[keys.sales], '{json quebrado');
   assert.deepEqual(JSON.parse(localStorage.getItem(keys.products)), incoming.data.products);
 });
 
-test('Se não for possível gravar a cópia prévia, não inicia a restauração', () => {
+test('Se não for possível gravar a cópia prévia, não inicia a restauração', async () => {
   setData({ ...dataSet('Antes'), sales: [], cash: { sessions: [], movements: [] } });
   const incoming = backupService.parseBackupJson(backupService.createBackupJson()).backup;
   const oldProducts = localStorage.getItem(keys.products);
   localStorage.failKeyOnce = keys.safety;
-  assert.throws(() => backupService.restoreBackup(incoming), /cópia de segurança dos dados atuais/);
+  await assert.rejects(() => backupService.restoreBackup(incoming), /cópia de segurança dos dados atuais/);
   assert.equal(localStorage.getItem(keys.products), oldProducts);
 });
 
@@ -160,7 +165,7 @@ function recalculate(document) {
   return JSON.stringify(document);
 }
 
-test('Backup v1 permanece compatível sem inventar ledger histórico', () => {
+test('Backup v1 permanece compatível sem inventar ledger histórico', async () => {
   setData(dataSet('Legado'));
   const document = JSON.parse(backupService.createBackupJson());
   document.version = 1; delete document.data.financial;
@@ -169,7 +174,7 @@ test('Backup v1 permanece compatível sem inventar ledger histórico', () => {
   assert.equal(parsed.backup.data.sales[0].payments[0].capturedAt, undefined);
 });
 
-test('Rejeita evento órfão ou compensação excessiva mesmo com checksum válido', () => {
+test('Rejeita evento órfão ou compensação excessiva mesmo com checksum válido', async () => {
   setData(dataSet('Loja'));
   const document = JSON.parse(backupService.createBackupJson());
   document.data.financial.refunds.push({ id: 'refund', saleId: 'unknown', saleNumber: 1, method: 'pix', amountInCents: 100, status: 'pending', createdAt: '2026-10-08T11:00:00.000Z' });
@@ -179,12 +184,33 @@ test('Rejeita evento órfão ou compensação excessiva mesmo com checksum váli
   assert.throws(() => backupService.parseBackupJson(recalculate(document)), /relações/);
 });
 
-test('Falha ao gravar ledger durante restauração reverte todas as chaves', () => {
+test('Falha ao gravar ledger durante restauração reverte todas as chaves', async () => {
   setData(dataSet('Recebido'));
   const incoming = backupService.parseBackupJson(backupService.createBackupJson()).backup;
   setData(dataSet('Anterior'));
   const before = new Map([keys.products, keys.settings, keys.sales, keys.cash, keys.financial].map((key) => [key, localStorage.getItem(key)]));
   localStorage.failKeyOnce = keys.financial;
-  assert.throws(() => backupService.restoreBackup(incoming), /dados anteriores foram preservados/);
+  await assert.rejects(() => backupService.restoreBackup(incoming), /dados anteriores foram preservados/);
   for (const [key, raw] of before) assert.equal(localStorage.getItem(key), raw);
+});
+
+
+test('Falha também na reversão não informa sucesso e conserva cópia anterior auditável', async () => {
+  setData(dataSet('Importado'));
+  const incoming=backupService.parseBackupJson(backupService.createBackupJson()).backup;
+  setData(dataSet('Anterior'));
+  const previousProducts=localStorage.getItem(keys.products);
+  localStorage.failKeyOnce=keys.financial;
+  localStorage.failOnWrites(keys.products,[2]);
+  await assert.rejects(()=>backupService.restoreBackup(incoming),/reversão automática não foi completa/);
+  const safety=JSON.parse(backupService.getRestoreSafetyCopy());
+  assert.equal(JSON.stringify(safety.data.products),previousProducts);
+});
+
+
+test('Backup rejeita data financeira inválida mesmo com checksum recalculado', async () => {
+  setData(dataSet('Loja'));
+  const document=JSON.parse(backupService.createBackupJson());
+  document.data.financial.refunds.push({id:'bad-date',saleId:'sale-a',saleNumber:1,method:'pix',amountInCents:50,status:'pending',createdAt:'data-inválida'});
+  assert.throws(()=>backupService.parseBackupJson(recalculate(document)),/inválidos/);
 });

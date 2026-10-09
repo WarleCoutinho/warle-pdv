@@ -1,3 +1,6 @@
+// Authentication and consumption share one service module, including during Vite hot reload.
+export { lookupCustomerCredit } from './saleFinancialStorage';
+import { requireOperator } from './operatorAccess';
 import { assertCurrentCashSession } from './cashStorage';
 import type { SalePayment } from '../types/payment';
 import type { Sale, SaleCancellationReason, SaleItem } from '../types/sale';
@@ -5,12 +8,19 @@ import type { CartItem } from '../types/product';
 import { multiplyMoney, sumMoney } from '../utils/money';
 import { calculatePaymentTotals } from '../utils/payments';
 import { isCompletedSale } from '../utils/saleStatus';
-import { commitCreditRedemptions, releaseCreditReservations, reserveCreditRedemptions, restoreCreditsForCancelledSale, withCustomerCreditLock } from './saleFinancialStorage';
+import { commitCreditRedemptions, releaseCreditReservations, reserveCreditRedemptions, restoreCreditsForCancelledSale, withCustomerCreditLock, assertFinancialRecoveryComplete, assertCreditAuthorization, getSaleResolvedAmount, loadSaleFinancialData } from './saleFinancialStorage';
+
+export class SaleCreditFinalizationPendingError extends Error {
+  constructor(public readonly saleId: string) {
+    super('A venda foi salva, mas a baixa do crédito está pendente de recuperação. Não repita a venda; atualize o sistema. A venda e a reserva foram preservadas.');
+    this.name = 'SaleCreditFinalizationPendingError';
+  }
+}
 
 export const SALES_STORAGE_KEY = 'raiz-pdv:completed-sales';
 
 export function validateSalesBackup(value: unknown): Sale[] {
-  if (!Array.isArray(value) || !value.every(isSale)) throw new Error('A lista de vendas do backup é inválida.');
+  if (!Array.isArray(value) || !value.every(isSale) || (Array.isArray(value) && (new Set(value.map((item: Sale) => item.id)).size !== value.length || new Set(value.map((item: Sale) => item.number)).size !== value.length))) throw new Error('A lista de vendas do backup é inválida.');
   return value;
 }
 
@@ -24,7 +34,7 @@ export function listSales(): Sale[] {
   } catch {
     throw new Error('Os dados das vendas salvas estão inválidos.');
   }
-  if (!Array.isArray(value) || !value.every(isSale)) {
+  if (!Array.isArray(value) || !value.every(isSale) || (Array.isArray(value) && (new Set(value.map((item: Sale) => item.id)).size !== value.length || new Set(value.map((item: Sale) => item.number)).size !== value.length))) {
     throw new Error('Os dados das vendas salvas estão inválidos.');
   }
   return value as Sale[];
@@ -38,77 +48,92 @@ export function clearStoredSales(): void {
   localStorage.removeItem(SALES_STORAGE_KEY);
 }
 
-export function saveCompletedSale(items: CartItem[], totalInCents: number, payments: SalePayment[], cashSessionId: string): Sale {
-  if (!cashSessionId) throw new Error('Abra um caixa antes de concluir a venda.');
-  assertCurrentCashSession(cashSessionId);
-  const sales = listSales();
-  const number = sales.reduce((max, sale) => Math.max(max, sale.number), 0) + 1;
-  if (!Number.isSafeInteger(number)) throw new Error('Não foi possível gerar o número da venda.');
-
-  const sale: Sale = {
-    id: createSaleId(),
-    number,
-    date: new Date().toISOString(),
-    cashSessionId,
-    status: 'completed',
-    items: items.map(toSaleItem),
-    totalInCents,
-    payments: payments.map((payment) => ({ ...payment, capturedAt: new Date().toISOString() })),
-  };
-  if (payments.some((payment) => payment.method === 'customer_credit')) throw new Error('Use a finalização protegida para vendas com crédito do cliente.');
-  if (!isSale(sale)) throw new Error('Os dados da venda não passaram na validação.');
-
-  try {
-    localStorage.setItem(SALES_STORAGE_KEY, JSON.stringify([...sales, sale]));
-  } catch {
-    throw new Error('Não foi possível salvar a venda. A venda não foi concluída.');
-  }
-  notifySalesChanged();
-  return sale;
-}
-
-export async function saveCompletedSaleWithCustomerCredit(items: CartItem[], totalInCents: number, payments: SalePayment[], cashSessionId: string): Promise<Sale> {
-  if (!cashSessionId) throw new Error('Abra um caixa antes de concluir a venda.');
-  assertCurrentCashSession(cashSessionId);
-  const sales = listSales();
-  const number = sales.reduce((max, sale) => Math.max(max, sale.number), 0) + 1;
-  if (!Number.isSafeInteger(number)) throw new Error('Não foi possível gerar o número da venda.');
-  const sale: Sale = { id: createSaleId(), number, date: new Date().toISOString(), cashSessionId, status: 'completed', items: items.map(toSaleItem), totalInCents, payments: payments.map((payment) => ({ ...payment, capturedAt: new Date().toISOString() })) };
-  if (!isSale(sale)) throw new Error('Os dados da venda não passaram na validação.');
+export async function saveCompletedSale(items: CartItem[], totalInCents: number, payments: SalePayment[], cashSessionId: string): Promise<Sale> {
   return withCustomerCreditLock(() => {
+    assertFinancialRecoveryComplete();
+    requireOperator();
+    if (!cashSessionId) throw new Error('Abra um caixa antes de concluir a venda.');
     assertCurrentCashSession(cashSessionId);
-    const previousRaw = localStorage.getItem(SALES_STORAGE_KEY);
-    const currentSales = listSales();
-    if (currentSales.some((item) => item.number >= number)) throw new Error('O número da venda mudou durante a finalização. Atualize e tente novamente.');
-    const requested = payments.filter((payment) => payment.method === 'customer_credit').map((payment) => ({ creditId: payment.customerCreditId ?? '', amountInCents: payment.amountInCents }));
-    reserveCreditRedemptions(sale.id, requested);
-    try { localStorage.setItem(SALES_STORAGE_KEY, JSON.stringify([...currentSales, sale])); }
-    catch { releaseCreditReservations(sale.id); throw new Error('Não foi possível salvar a venda; nenhum crédito foi consumido.'); }
-    try { commitCreditRedemptions(sale); }
-    catch (error) {
-      try { if (previousRaw === null) localStorage.removeItem(SALES_STORAGE_KEY); else localStorage.setItem(SALES_STORAGE_KEY, previousRaw); releaseCreditReservations(sale.id); }
-      catch { throw new Error('A venda foi salva, mas o registro do crédito está pendente. Não repita a venda; atualize o sistema e procure suporte.'); }
-      throw error;
+    const sales = listSales();
+    const number = sales.reduce((max, sale) => Math.max(max, sale.number), 0) + 1;
+    if (!Number.isSafeInteger(number)) throw new Error('Não foi possível gerar o número da venda.');
+
+    const sale: Sale = {
+      id: createSaleId(),
+      number,
+      date: new Date().toISOString(),
+      cashSessionId,
+      status: 'completed',
+      items: items.map((item) => ({ ...toSaleItem(item), lineId: createSaleId() })),
+      totalInCents,
+      payments: payments.map((payment) => ({ ...payment, capturedAt: new Date().toISOString() })),
+    };
+    if (payments.some((payment) => payment.method === 'customer_credit')) throw new Error('Use a finalização protegida para vendas com crédito do cliente.');
+    if (!isSale(sale)) throw new Error('Os dados da venda não passaram na validação.');
+
+    try {
+      localStorage.setItem(SALES_STORAGE_KEY, JSON.stringify([...sales, sale]));
+    } catch {
+      throw new Error('Não foi possível salvar a venda. A venda não foi concluída.');
     }
     notifySalesChanged();
     return sale;
   });
 }
 
-export async function cancelSaleAndRestoreCustomerCredit(saleId: string, reason: SaleCancellationReason, note = ''): Promise<Sale> {
+export async function saveCompletedSaleWithCustomerCredit(items: CartItem[], totalInCents: number, payments: SalePayment[], cashSessionId: string): Promise<Sale> {
+  requireOperator();
+  if (!cashSessionId) throw new Error('Abra um caixa antes de concluir a venda.');
+  assertCurrentCashSession(cashSessionId);
+  const sales = listSales();
+  const number = sales.reduce((max, sale) => Math.max(max, sale.number), 0) + 1;
+  if (!Number.isSafeInteger(number)) throw new Error('Não foi possível gerar o número da venda.');
+  const sale: Sale = { id: createSaleId(), number, date: new Date().toISOString(), cashSessionId, status: 'completed', items: items.map((item) => ({ ...toSaleItem(item), lineId: createSaleId() })), totalInCents, payments: payments.map((payment) => ({ ...payment, capturedAt: new Date().toISOString() })) };
+  if (!isSale(sale)) throw new Error('Os dados da venda não passaram na validação.');
   return withCustomerCreditLock(() => {
-    const previousRaw = localStorage.getItem(SALES_STORAGE_KEY);
-    const cancelled = cancelCompletedSale(saleId, reason, note);
-    try { restoreCreditsForCancelledSale(cancelled); }
-    catch (error) {
-      try { if (previousRaw !== null) localStorage.setItem(SALES_STORAGE_KEY, previousRaw); }
-      catch { throw new Error('O cancelamento e a restauração de crédito ficaram inconsistentes. Não repita a operação; procure suporte.'); }
-      throw error;
-    }
-    return cancelled;
+      assertCurrentCashSession(cashSessionId);
+      assertFinancialRecoveryComplete();
+      const currentSales = listSales();
+      sale.number = currentSales.reduce((max, item) => Math.max(max, item.number), 0) + 1;
+      sale.date = new Date().toISOString();
+      if (!Number.isSafeInteger(sale.number)) throw new Error('Não foi possível gerar o número da venda.');
+      const requested = payments.filter((payment) => payment.method === 'customer_credit').map((payment) => ({ creditId: payment.customerCreditId ?? '', amountInCents: payment.amountInCents }));
+      assertCreditAuthorization(requested);
+      reserveCreditRedemptions(sale.id, requested);
+      try { localStorage.setItem(SALES_STORAGE_KEY, JSON.stringify([...currentSales, sale])); }
+      catch {
+        try { releaseCreditReservations(sale.id); } catch { throw new Error('A venda não foi gravada e a reserva foi preservada para recuperação. Atualize o sistema antes de tentar novamente.'); }
+        throw new Error('Não foi possível salvar a venda; nenhum crédito foi consumido.');
+      }
+      try { commitCreditRedemptions(sale); }
+      catch {
+        notifySalesChanged();
+        throw new SaleCreditFinalizationPendingError(sale.id);
+      }
+      notifySalesChanged();
+      return sale;
   });
 }
-export function cancelCompletedSale(saleId: string, reason: SaleCancellationReason, note = ''): Sale {
+
+export async function cancelSaleAndRestoreCustomerCredit(saleId: string, reason: SaleCancellationReason, note = ''): Promise<Sale> {
+  return withCustomerCreditLock(() => {
+      assertFinancialRecoveryComplete();
+      const original = getSaleById(saleId);
+      if (original && isCompletedSale(original)) {
+        const data = loadSaleFinancialData();
+        const restored = sumMoney(data.creditMovements.filter((item) => item.saleId === saleId && item.type === 'redeemed').map((item) => item.amountInCents));
+        if (getSaleResolvedAmount(saleId, data) + restored > original.totalInCents) throw new Error('O cancelamento excederia o total já compensado ao restaurar os créditos. Preserve os registros para conferência.');
+      }
+      const cancelled = cancelCompletedSale(saleId, reason, note);
+      try { restoreCreditsForCancelledSale(cancelled); }
+      catch {
+        throw new Error('O cancelamento foi gravado, mas a restauração do crédito está pendente de recuperação. Não repita a operação; atualize o sistema. Os registros foram preservados.');
+      }
+      return cancelled;
+  });
+}
+function cancelCompletedSale(saleId: string, reason: SaleCancellationReason, note = ''): Sale {
+  requireOperator();
   if (!['launch_error', 'customer_cancelled', 'payment_error', 'other'].includes(reason)) throw new Error('Selecione um motivo válido para cancelar a venda.');
   if (reason === 'other' && !note.trim()) throw new Error('Descreva o motivo do cancelamento.');
   if (note.length > 300) throw new Error('A observação deve ter no máximo 300 caracteres.');
@@ -154,6 +179,8 @@ function isSale(value: unknown): value is Sale {
   } else if (sale.cancelledAt !== undefined || sale.cancellationReason !== undefined || sale.cancellationNote !== undefined) return false;
 
   try {
+    const lineIds = (sale.items as SaleItem[]).map((item, index) => item.lineId ?? `legacy-line-${index + 1}`);
+    if (new Set(lineIds).size !== lineIds.length) return false;
     const itemTotal = sumMoney((sale.items as SaleItem[]).map((item) => item.subtotalInCents));
     const paymentTotal = calculatePaymentTotals(Number(sale.totalInCents), sale.payments as SalePayment[]);
     return itemTotal === sale.totalInCents && paymentTotal.pendingInCents === 0 && paymentTotal.paidInCents === sale.totalInCents;
@@ -165,7 +192,7 @@ function isSale(value: unknown): value is Sale {
 function isSaleItem(value: unknown): value is SaleItem {
   if (typeof value !== 'object' || value === null) return false;
   const item = value as Record<string, unknown>;
-  if (typeof item.productId !== 'string' || typeof item.productName !== 'string'
+  if ((item.lineId !== undefined && (typeof item.lineId !== 'string' || !item.lineId)) || typeof item.productId !== 'string' || typeof item.productName !== 'string'
     || !Number.isSafeInteger(item.unitPriceInCents) || Number(item.unitPriceInCents) < 0
     || !Number.isSafeInteger(item.quantity) || Number(item.quantity) < 1
     || !Number.isSafeInteger(item.subtotalInCents) || Number(item.subtotalInCents) < 0) return false;

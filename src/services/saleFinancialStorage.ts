@@ -1,15 +1,26 @@
+import { CART_STORAGE_KEY } from './cartStorage';
 import type { PaymentMethod } from '../types/payment';
 import type { Sale } from '../types/sale';
-import { requireCashOwner, requireOperator } from './operatorAccess';
+import { requireCashOwner, requireOperator, OPERATOR_SESSION_KEY } from './operatorAccess';
 import { getOpenCashSession, loadCashData } from './cashStorage';
 import { listSales } from './saleStorage';
 import { getCashSummary } from '../utils/cash';
 import { emptySaleFinancialData, type CreditReservation, type CustomerCredit, type CustomerCreditMovement, type FinancialRefund, type MerchandiseReturn, type SaleFinancialData } from '../types/customerCredit';
 import { multiplyMoney, sumMoney } from '../utils/money';
 import { getSaleStatus } from '../utils/saleStatus';
-export async function withCustomerCreditLock<T>(operation: () => Promise<T> | T): Promise<T> {
-  if (typeof navigator === 'undefined' || !navigator.locks) throw new Error('Este navegador não oferece bloqueio seguro entre abas; o uso de crédito foi impedido para evitar duplicidade.');
-  return navigator.locks.request('raiz-pdv:customer-credit-ledger', { mode: 'exclusive' }, operation);
+import { getSaleLines, getReturnedLineQuantities } from '../utils/saleLines';
+import { withFinancialLock } from './financialLock';
+export const withCustomerCreditLock = withFinancialLock;
+const creditAuthorizations = new Map<string, { hash: string; session: string; expiresAt: number }>();
+
+export function assertCreditAuthorization(requested: Array<{ creditId: string }>): void {
+  requireOperator();
+  const data = loadSaleFinancialData();
+  for (const { creditId } of requested) {
+    const grant = creditAuthorizations.get(creditId);
+    const credit = data.credits.find((item) => item.id === creditId);
+    if (!grant || !credit || grant.hash !== credit.authCodeHash || grant.session !== sessionStorage.getItem(OPERATOR_SESSION_KEY) || grant.expiresAt < Date.now()) throw new Error('Informe novamente o código de autorização do crédito antes de concluir a venda.');
+  }
 }
 
 export const FINANCIAL_STORAGE_KEY = 'raiz-pdv:sale-financial-data';
@@ -57,26 +68,32 @@ export function getCustomerCreditReceivedBySession(sessionId: string, sales: Sal
     .flatMap((sale) => sale.payments.filter((payment) => payment.method === 'customer_credit').map((payment) => payment.amountInCents)));
 }
 
-export function recordMerchandiseReturn(sale: Sale, quantities: Record<string, number>, cashSessionId?: string): SaleFinancialData {
-  const data = loadSaleFinancialData();
-  if (getSaleStatus(sale) === 'cancelled') throw new Error('A venda cancelada já permite apuração pelo valor integral; não registre outra devolução parcial nela.');
-  const prior = data.returns.filter((item) => item.saleId === sale.id);
-  const returnedByItem = new Map<string, number>();
-  for (const returned of prior) for (const line of returned.items) returnedByItem.set(line.productId, (returnedByItem.get(line.productId) ?? 0) + line.quantity);
-  const items: MerchandiseReturn['items'] = [];
-  for (const item of sale.items) {
-    const quantity = quantities[item.productId] ?? 0;
-    if (!Number.isSafeInteger(quantity) || quantity < 0) throw new Error('Informe quantidades inteiras válidas para a devolução.');
-    const alreadyReturned = returnedByItem.get(item.productId) ?? 0;
-    if (alreadyReturned + quantity > item.quantity) throw new Error(`A quantidade devolvida de ${item.productName} excede a quantidade da venda.`);
-    if (quantity > 0) items.push({ productId: item.productId, productName: item.productName, quantity, amountInCents: multiplyMoney(item.unitPriceInCents, quantity) });
-  }
-  if (items.length === 0) throw new Error('Selecione ao menos um item para registrar a devolução.');
-  const returnedAmount = sumMoney(items.map((item) => item.amountInCents));
-  const entry: MerchandiseReturn = { id: createId(), saleId: sale.id, saleNumber: sale.number, createdAt: new Date().toISOString(), ...(cashSessionId ? { cashSessionId } : {}), items, amountInCents: returnedAmount };
-  const next = { ...data, returns: [...data.returns, entry] };
-  save(next);
-  return next;
+export async function recordMerchandiseReturn(sale: Sale, quantities: Record<string, number>, cashSessionId?: string): Promise<SaleFinancialData> {
+  return withCustomerCreditLock(() => {
+    sale = listSales().find((item) => item.id === sale.id) ?? sale;
+    if (cashSessionId) assertRefundCashSession(cashSessionId, 0);
+    const data = loadSaleFinancialData();
+    if (getSaleStatus(sale) === 'cancelled') throw new Error('A venda cancelada já permite apuração pelo valor integral; não registre outra devolução parcial nela.');
+    const returnedByLine = getReturnedLineQuantities(sale, data);
+    const lines = getSaleLines(sale);
+    for (const key of Object.keys(quantities)) {
+      if (!lines.some((item) => item.lineId === key) && lines.filter((item) => item.productId === key).length !== 1) throw new Error('Selecione a linha original da venda; este produto possui linhas repetidas ou não existe na venda.');
+    }
+    const items: MerchandiseReturn['items'] = [];
+    for (const item of lines) {
+      const uniqueProduct = lines.filter((line) => line.productId === item.productId).length === 1;
+      const quantity = quantities[item.lineId] ?? (uniqueProduct ? quantities[item.productId] : 0) ?? 0;
+      if (!Number.isSafeInteger(quantity) || quantity < 0) throw new Error('Informe quantidades inteiras válidas para a devolução.');
+      if ((returnedByLine[item.lineId] ?? 0) + quantity > item.quantity) throw new Error(`A quantidade devolvida de ${item.productName} excede a quantidade da venda.`);
+      if (quantity > 0) items.push({ lineId: item.lineId, productId: item.productId, productName: item.productName, unitPriceInCents: item.unitPriceInCents, quantity, amountInCents: multiplyMoney(item.unitPriceInCents, quantity) });
+    }
+    if (items.length === 0) throw new Error('Selecione ao menos um item para registrar a devolução.');
+    const returnedAmount = sumMoney(items.map((item) => item.amountInCents));
+    const entry: MerchandiseReturn = { id: createId(), saleId: sale.id, saleNumber: sale.number, createdAt: new Date().toISOString(), ...(cashSessionId ? { cashSessionId } : {}), items, amountInCents: returnedAmount };
+    const next = { ...data, returns: [...data.returns, entry] };
+    save(next);
+    return next;
+  });
 }
 
 export async function settleSaleBalance(sale: Sale, input: {
@@ -84,70 +101,87 @@ export async function settleSaleBalance(sale: Sale, input: {
   statuses?: Partial<Record<PaymentMethod, 'completed' | 'pending'>>;
   cashSessionId?: string;
 }): Promise<{ data: SaleFinancialData; issuedCredits: Array<{ credit: CustomerCredit; authCode: string }> }> {
-  const data = loadSaleFinancialData();
-  const eligible = getSaleEligibleAmount(sale, data);
-  const remaining = eligible - getSaleResolvedAmount(sale.id, data);
-  const methods: Array<PaymentMethod | 'customer_credit'> = ['cash', 'pix', 'debit', 'credit', 'customer_credit'];
-  for (const method of methods) {
-    const amount = input.amounts[method] ?? 0;
-    if (!Number.isSafeInteger(amount) || amount < 0) throw new Error('Informe valores de resolução não negativos e em centavos inteiros.');
-    if (method === 'cash' && amount > 0) assertRefundCashSession(input.cashSessionId, input.statuses?.cash === 'pending' ? 0 : amount);
-  }
-  const total = sumMoney(methods.map((method) => input.amounts[method] ?? 0));
-  if (total <= 0 || total > remaining) throw new Error('A resolução excede o saldo elegível da venda ou não contém valor válido.');
-
-  const issuedCredits: Array<{ credit: CustomerCredit; authCode: string }> = [];
-  const now = new Date().toISOString();
-  const refunds = [...data.refunds];
-  const credits = [...data.credits];
-  const creditMovements = [...data.creditMovements];
-  for (const method of methods) {
-    const amount = input.amounts[method] ?? 0;
-    if (amount === 0) continue;
-    const status = method === 'customer_credit' ? 'completed' : (input.statuses?.[method] ?? 'completed');
-    const refund: FinancialRefund = { id: createId(), saleId: sale.id, saleNumber: sale.number, method, amountInCents: amount, status, createdAt: now,
-      ...(status === 'completed' ? { completedAt: now } : {}), ...(method === 'cash' || method === 'pix' || method === 'debit' || method === 'credit' ? { cashSessionId: input.cashSessionId } : {}) };
-    if (method === 'customer_credit') {
-      const authCode = createAuthCode();
-      const credit: CustomerCredit = { id: createId(), receiptNumber: createReceiptNumber(), authCodeHash: await hashAuthCode(authCode), originalSaleId: sale.id, originalSaleNumber: sale.number, issuedAt: now, originalAmountInCents: amount, balanceInCents: amount, status: 'available', ...(input.cashSessionId ? { issuingCashSessionId: input.cashSessionId } : {}) };
-      refund.creditId = credit.id; credits.push(credit); creditMovements.push({ id: createId(), creditId: credit.id, type: 'issued', amountInCents: amount, createdAt: now, saleId: sale.id, refundId: refund.id, ...(input.cashSessionId ? { cashSessionId: input.cashSessionId } : {}) }); issuedCredits.push({ credit, authCode });
+  return withCustomerCreditLock(async () => {
+    assertFinancialRecoveryComplete();
+    if (input.cashSessionId) assertRefundCashSession(input.cashSessionId, 0);
+    sale = listSales().find((item) => item.id === sale.id) ?? sale;
+    const data = loadSaleFinancialData();
+    const eligible = getSaleEligibleAmount(sale, data);
+    const remaining = eligible - getSaleResolvedAmount(sale.id, data);
+    const methods: Array<PaymentMethod | 'customer_credit'> = ['cash', 'pix', 'debit', 'credit', 'customer_credit'];
+    for (const method of methods) {
+      const amount = input.amounts[method] ?? 0;
+      if (!Number.isSafeInteger(amount) || amount < 0) throw new Error('Informe valores de resolução não negativos e em centavos inteiros.');
+      if (amount > 0 && method !== 'customer_credit' && input.cashSessionId) assertRefundCashSession(input.cashSessionId, 0);
+      if (method === 'cash' && amount > 0) assertRefundCashSession(input.cashSessionId, input.statuses?.cash === 'pending' ? 0 : amount);
     }
-    refunds.push(refund);
-  }
-  const next = { ...data, refunds, credits, creditMovements };
-  save(next);
-  return { data: next, issuedCredits };
+    const total = sumMoney(methods.map((method) => input.amounts[method] ?? 0));
+    if (total <= 0 || total > remaining) throw new Error('A resolução excede o saldo elegível da venda ou não contém valor válido.');
+
+    const issuedCredits: Array<{ credit: CustomerCredit; authCode: string }> = [];
+    const now = new Date().toISOString();
+    const refunds = [...data.refunds];
+    const credits = [...data.credits];
+    const creditMovements = [...data.creditMovements];
+    for (const method of methods) {
+      const amount = input.amounts[method] ?? 0;
+      if (amount === 0) continue;
+      const status = method === 'customer_credit' ? 'completed' : (input.statuses?.[method] ?? 'completed');
+      const refund: FinancialRefund = { id: createId(), saleId: sale.id, saleNumber: sale.number, method, amountInCents: amount, status, createdAt: now,
+        ...(status === 'completed' ? { completedAt: now } : {}), ...(method === 'cash' || method === 'pix' || method === 'debit' || method === 'credit' ? { cashSessionId: input.cashSessionId } : {}) };
+      if (method === 'customer_credit') {
+        const authCode = createAuthCode();
+        const credit: CustomerCredit = { id: createId(), receiptNumber: createReceiptNumber(), authCodeHash: await hashAuthCode(authCode), originalSaleId: sale.id, originalSaleNumber: sale.number, issuedAt: now, originalAmountInCents: amount, balanceInCents: amount, status: 'available', ...(input.cashSessionId ? { issuingCashSessionId: input.cashSessionId } : {}) };
+        refund.creditId = credit.id; credits.push(credit); creditMovements.push({ id: createId(), creditId: credit.id, type: 'issued', amountInCents: amount, createdAt: now, saleId: sale.id, refundId: refund.id, ...(input.cashSessionId ? { cashSessionId: input.cashSessionId } : {}) }); issuedCredits.push({ credit, authCode });
+      }
+      refunds.push(refund);
+    }
+    if (input.amounts.cash > 0) assertRefundCashSession(input.cashSessionId, input.statuses?.cash === 'pending' ? 0 : input.amounts.cash);
+    const next = { ...data, refunds, credits, creditMovements };
+    save(next);
+    return { data: next, issuedCredits };
+  });
 }
 
-export async function lookupCustomerCredit(query: string, authCode?: string): Promise<CustomerCredit | undefined> {
+export async function lookupCustomerCredit(query: string, authCode?: string): Promise<Omit<CustomerCredit, 'authCodeHash'> | undefined> {
   const normalized = query.trim().toLocaleUpperCase('pt-BR');
   if (!normalized) return undefined;
+  const hash = authCode ? await hashAuthCode(authCode.trim()) : undefined;
   const data = loadSaleFinancialData();
   const candidates = data.credits.filter((item) => item.receiptNumber.toLocaleUpperCase('pt-BR') === normalized || String(item.originalSaleNumber) === normalized.replace(/^#?0*/, ''));
-  const hash = authCode ? await hashAuthCode(authCode.trim()) : undefined;
-  const credit = hash ? candidates.find((item) => item.authCodeHash === hash) : candidates[0];
+  const credit = hash ? candidates.find((item) => item.authCodeHash === hash) : authCode !== undefined ? undefined : candidates[0];
   if (!credit) return undefined;
+  if (hash) {
+    requireOperator();
+    creditAuthorizations.set(credit.id, { hash, session: sessionStorage.getItem(OPERATOR_SESSION_KEY)!, expiresAt: Date.now() + 5 * 60 * 1000 });
+  }
   const reserved = sumMoney(data.creditReservations.filter((item) => item.creditId === credit.id).map((item) => item.amountInCents));
-  return { ...credit, balanceInCents: Math.max(0, credit.balanceInCents - reserved) };
+  const { authCodeHash: _secret, ...publicCredit } = credit;
+  return { ...publicCredit, balanceInCents: Math.max(0, credit.balanceInCents - reserved) };
 }
 
-export function searchCustomerCredits(query: string): CustomerCredit[] {
+export function searchCustomerCredits(query: string): Array<Omit<CustomerCredit, 'authCodeHash'>> {
   const normalized = query.trim().toLocaleUpperCase('pt-BR');
   if (!normalized) return [];
-  return loadSaleFinancialData().credits.filter((credit) => credit.receiptNumber.toLocaleUpperCase('pt-BR').includes(normalized) || String(credit.originalSaleNumber) === normalized.replace(/^#?0*/, '')).map(({ authCodeHash: _secret, ...credit }) => credit as CustomerCredit);
+  return loadSaleFinancialData().credits.filter((credit) => credit.receiptNumber.toLocaleUpperCase('pt-BR').includes(normalized) || String(credit.originalSaleNumber) === normalized.replace(/^#?0*/, '')).map(({ authCodeHash: _secret, ...credit }) => credit);
 }
 
-export function updatePendingRefund(refundId: string, status: 'completed' | 'failed', cashSessionId?: string): SaleFinancialData {
-  const data = loadSaleFinancialData();
-  const refund = data.refunds.find((item) => item.id === refundId);
-  if (!refund || refund.status !== 'pending') throw new Error('Este reembolso não está pendente ou já foi atualizado.');
-  if (status === 'completed' && refund.method === 'cash') assertRefundCashSession(cashSessionId, refund.amountInCents);
-  const refunds = data.refunds.map((item) => item.id === refundId ? { ...item, status, ...(status === 'completed' ? { completedAt: new Date().toISOString(), ...(cashSessionId ? { cashSessionId } : {}) } : {}) } : item);
-  const next = { ...data, refunds }; save(next); return next;
+export async function updatePendingRefund(refundId: string, status: 'completed' | 'failed', cashSessionId?: string): Promise<SaleFinancialData> {
+  return withCustomerCreditLock(() => {
+    assertFinancialRecoveryComplete();
+    const data = loadSaleFinancialData();
+    const refund = data.refunds.find((item) => item.id === refundId);
+    if (!refund || refund.status !== 'pending') throw new Error('Este reembolso não está pendente ou já foi atualizado.');
+    if (status === 'completed' && cashSessionId) assertRefundCashSession(cashSessionId, refund.method === 'cash' ? refund.amountInCents : 0);
+    if (status === 'completed' && refund.method === 'cash') assertRefundCashSession(cashSessionId, refund.amountInCents);
+    const refunds = data.refunds.map((item) => item.id === refundId ? { ...item, status, ...(status === 'completed' ? { completedAt: new Date().toISOString(), cashSessionId } : {}) } : item);
+    const next = { ...data, refunds }; save(next); return next;
+  });
 }
 
 export function reserveCreditRedemptions(saleId: string, requested: Array<{ creditId: string; amountInCents: number }>): SaleFinancialData {
   const data = loadSaleFinancialData();
+  if (data.creditReservations.some((item) => item.saleId === saleId) || data.creditMovements.some((item) => item.saleId === saleId && item.type === 'redeemed')) throw new Error('Esta venda já possui reserva ou consumo de crédito; não repita a operação.');
   const combined = new Map<string, number>();
   for (const item of requested) combined.set(item.creditId, sumMoney([combined.get(item.creditId) ?? 0, item.amountInCents]));
   for (const [creditId, amount] of combined) {
@@ -160,10 +194,24 @@ export function reserveCreditRedemptions(saleId: string, requested: Array<{ cred
   const next = { ...data, creditReservations: reservations }; save(next); return next;
 }
 
+function validateCreditReservations(sale: Sale, data: SaleFinancialData): CreditReservation[] {
+  const reservations = data.creditReservations.filter((item) => item.saleId === sale.id);
+  const requested = new Map<string, number>();
+  for (const payment of sale.payments.filter((item) => item.method === 'customer_credit')) requested.set(payment.customerCreditId!, sumMoney([requested.get(payment.customerCreditId!) ?? 0, payment.amountInCents]));
+  const redeemed = data.creditMovements.filter((item) => item.saleId === sale.id && item.type === 'redeemed');
+  if (!reservations.length) {
+    if ([...requested].some(([id, amount]) => sumMoney(redeemed.filter((item) => item.creditId === id).map((item) => item.amountInCents)) !== amount)) throw new Error('A venda gravada não possui reserva ou baixa correspondente. Preserve os dados para auditoria.');
+    return reservations;
+  }
+  if (redeemed.length || [...requested].some(([id, amount]) => sumMoney(reservations.filter((item) => item.creditId === id).map((item) => item.amountInCents)) !== amount)
+    || reservations.some((item) => !requested.has(item.creditId))) throw new Error('A reserva de crédito não corresponde à venda gravada; ela foi mantida bloqueada para auditoria.');
+  return reservations;
+}
+
 export function commitCreditRedemptions(sale: Sale): SaleFinancialData {
   const data = loadSaleFinancialData();
-  const reservations = data.creditReservations.filter((item) => item.saleId === sale.id);
-  if (reservations.length === 0) return data;
+  const reservations = validateCreditReservations(sale, data);
+  if (!reservations.length) return data;
   const movements = [...data.creditMovements];
   const credits = data.credits.map((credit) => {
     const amount = sumMoney(reservations.filter((item) => item.creditId === credit.id).map((item) => item.amountInCents));
@@ -177,24 +225,54 @@ export function commitCreditRedemptions(sale: Sale): SaleFinancialData {
   save(next); return next;
 }
 
-export async function recoverCreditReservations(sales: Sale[]): Promise<void> {
-  if (!loadSaleFinancialData().creditReservations.length) return;
+/** Re-read sales after taking the lock; the caller's old snapshot cannot release a valid reservation. */
+export async function recoverCreditReservations(_previousSales?: Sale[]): Promise<void> {
   await withCustomerCreditLock(() => {
+    requireOperator();
+    const sales = listSales();
     const reservations = loadSaleFinancialData().creditReservations;
-    for (const saleId of [...new Set(reservations.map((item) => item.saleId))]) {
+    for (const saleId of new Set(reservations.map((item) => item.saleId))) {
       const sale = sales.find((item) => item.id === saleId);
-      if (!sale || getSaleStatus(sale) === 'cancelled') { releaseCreditReservations(saleId); continue; }
-      const reserved = reservations.filter((item) => item.saleId === saleId);
-      for (const entry of reserved) {
-        const tendered = sumMoney(sale.payments.filter((item) => item.method === 'customer_credit' && item.customerCreditId === entry.creditId).map((item) => item.amountInCents));
-        const totalReserved = sumMoney(reserved.filter((item) => item.creditId === entry.creditId).map((item) => item.amountInCents));
-        if (tendered !== totalReserved) throw new Error('A reserva de crédito não corresponde à venda gravada; ela foi mantida bloqueada para auditoria.');
-      }
+      if (!sale) { releaseCreditReservations(saleId); continue; }
+      validateCreditReservations(sale, loadSaleFinancialData());
+      discardInterruptedSaleDraft(sale);
       commitCreditRedemptions(sale);
+    }
+    for (const sale of sales) {
+      if (!sale.payments.some((item) => item.method === 'customer_credit')) continue;
+      commitCreditRedemptions(sale);
+      if (getSaleStatus(sale) === 'cancelled') restoreCreditsForCancelledSale(sale);
     }
   });
 }
+
+/** A temporary cart already persisted as this sale must not be offered for replay after restart. */
+function discardInterruptedSaleDraft(sale: Sale): void {
+  const raw = localStorage.getItem(CART_STORAGE_KEY);
+  if (!raw) return;
+  let draft: unknown;
+  try { draft = JSON.parse(raw); } catch { return; }
+  const expected = sale.items.map(({ productId, quantity, unitPriceInCents }) => ({ productId, quantity, unitPriceInCents }));
+  if (JSON.stringify(draft) === JSON.stringify(expected)) localStorage.removeItem(CART_STORAGE_KEY);
+}
+
+/** Incomplete writes must be recovered before another sale, settlement or cash close. */
+export function assertFinancialRecoveryComplete(): void {
+  const data = loadSaleFinancialData();
+  const sales = listSales();
+  if (data.creditReservations.length) throw new Error('Há reserva de crédito pendente de recuperação. Atualize o sistema antes de continuar.');
+  for (const sale of sales) {
+    for (const id of new Set(sale.payments.filter((item) => item.method === 'customer_credit').map((item) => item.customerCreditId!))) {
+      const paid = sumMoney(sale.payments.filter((item) => item.customerCreditId === id).map((item) => item.amountInCents));
+      const redeemed = sumMoney(data.creditMovements.filter((item) => item.saleId === sale.id && item.creditId === id && item.type === 'redeemed').map((item) => item.amountInCents));
+      const restored = sumMoney(data.creditMovements.filter((item) => item.saleId === sale.id && item.creditId === id && item.type === 'restored').map((item) => item.amountInCents));
+      if (redeemed !== paid || (sale.status === 'cancelled' && restored !== redeemed)) throw new Error('A venda possui baixa ou restauração de crédito pendente. Atualize o sistema antes de continuar.');
+    }
+  }
+}
+
 export function releaseCreditReservations(saleId: string): void {
+  if (listSales().some((item) => item.id === saleId)) throw new Error('A reserva pertence a uma venda gravada e deve ser recuperada, não liberada.');
   const data = loadSaleFinancialData();
   const next = { ...data, creditReservations: data.creditReservations.filter((item) => item.saleId !== saleId) };
   save(next);
@@ -203,19 +281,25 @@ export function releaseCreditReservations(saleId: string): void {
 export function restoreCreditsForCancelledSale(sale: Sale): SaleFinancialData {
   const data = loadSaleFinancialData();
   if (getSaleStatus(sale) !== 'cancelled') throw new Error('Somente uma venda cancelada permite restaurar crédito.');
-  const prior = data.creditMovements.filter((item) => item.type === 'restored' && item.saleId === sale.id);
-  if (prior.length) return data;
   const redemptions = data.creditMovements.filter((item) => item.type === 'redeemed' && item.saleId === sale.id);
-  if (!redemptions.length) return data;
-  const restoredAmount = sumMoney(redemptions.map((item) => item.amountInCents));
+  const remaining = new Map<string, number>();
+  for (const item of redemptions) remaining.set(item.creditId, sumMoney([remaining.get(item.creditId) ?? 0, item.amountInCents]));
+  for (const item of data.creditMovements.filter((entry) => entry.type === 'restored' && entry.saleId === sale.id)) {
+    const amount = (remaining.get(item.creditId) ?? 0) - item.amountInCents;
+    if (amount < 0) throw new Error('A restauração registrada excede o crédito utilizado. Preserve os dados para auditoria.');
+    remaining.set(item.creditId, amount);
+  }
+  if (![...remaining.values()].some((amount) => amount > 0)) return data;
+  const restoredAmount = sumMoney([...remaining.values()]);
   if (getSaleResolvedAmount(sale.id, data) + restoredAmount > sale.totalInCents) throw new Error('A restauração do crédito excederia o total da venda após os reembolsos já registrados.');
   const credits = data.credits.map((credit) => {
-    const amount = sumMoney(redemptions.filter((item) => item.creditId === credit.id).map((item) => item.amountInCents));
+    const amount = remaining.get(credit.id) ?? 0;
     if (!amount) return credit;
     const balanceInCents = credit.balanceInCents + amount;
-    return { ...credit, balanceInCents: Math.min(credit.originalAmountInCents, balanceInCents), status: balanceInCents >= credit.originalAmountInCents ? 'available' as const : 'partial' as const };
+    if (balanceInCents > credit.originalAmountInCents) throw new Error('A restauração excede o crédito original. Preserve os dados para auditoria.');
+    return { ...credit, balanceInCents, status: balanceInCents >= credit.originalAmountInCents ? 'available' as const : 'partial' as const };
   });
-  const restored = redemptions.map((item) => ({ id: createId(), creditId: item.creditId, type: 'restored' as const, amountInCents: item.amountInCents, createdAt: new Date().toISOString(), saleId: sale.id, ...(getOpenCashSession(loadCashData()) ? { cashSessionId: getOpenCashSession(loadCashData())!.id } : {}) }));
+  const restored = [...remaining].filter(([, amount]) => amount > 0).map(([creditId, amountInCents]) => ({ id: createId(), creditId, type: 'restored' as const, amountInCents, createdAt: new Date().toISOString(), saleId: sale.id }));
   const next = { ...data, credits, creditMovements: [...data.creditMovements, ...restored] }; save(next); return next;
 }
 
@@ -267,8 +351,8 @@ function isSaleFinancialData(value: unknown): value is SaleFinancialData {
   }
   return true;
 }function isReturn(value: unknown): value is MerchandiseReturn {
-  if (!isRecord(value) || typeof value.id !== 'string' || typeof value.saleId !== 'string' || !Number.isSafeInteger(value.saleNumber) || !Number.isSafeInteger(value.amountInCents) || Number(value.amountInCents) <= 0 || typeof value.createdAt !== 'string' || !Array.isArray(value.items) || !value.items.length) return false;
-  return value.items.every((item) => isRecord(item) && typeof item.productId === 'string' && typeof item.productName === 'string' && Number.isSafeInteger(item.quantity) && Number(item.quantity) > 0 && Number.isSafeInteger(item.amountInCents) && Number(item.amountInCents) >= 0) && (value.items as Array<{ amountInCents: number }>).reduce((total, item) => total + item.amountInCents, 0) === value.amountInCents;
+  if (!isRecord(value) || typeof value.id !== 'string' || typeof value.saleId !== 'string' || !Number.isSafeInteger(value.saleNumber) || !Number.isSafeInteger(value.amountInCents) || Number(value.amountInCents) <= 0 || typeof value.createdAt !== 'string' || !Number.isFinite(Date.parse(value.createdAt)) || !Array.isArray(value.items) || !value.items.length) return false;
+  return value.items.every((item) => isRecord(item) && (item.lineId === undefined || (typeof item.lineId === 'string' && !!item.lineId)) && (item.unitPriceInCents === undefined || (Number.isSafeInteger(item.unitPriceInCents) && item.unitPriceInCents >= 0 && item.unitPriceInCents * item.quantity === item.amountInCents)) && typeof item.productId === 'string' && typeof item.productName === 'string' && Number.isSafeInteger(item.quantity) && Number(item.quantity) > 0 && Number.isSafeInteger(item.amountInCents) && Number(item.amountInCents) >= 0) && (value.items as Array<{ amountInCents: number }>).reduce((total, item) => total + item.amountInCents, 0) === value.amountInCents;
 }
 function isRefund(value: unknown): value is FinancialRefund {
   return isRecord(value) && typeof value.id === 'string' && typeof value.saleId === 'string' && Number.isSafeInteger(value.saleNumber) && ['cash', 'pix', 'debit', 'credit', 'customer_credit'].includes(String(value.method)) && Number.isSafeInteger(value.amountInCents) && Number(value.amountInCents) > 0 && ['pending', 'completed', 'failed'].includes(String(value.status)) && typeof value.createdAt === 'string' && Number.isFinite(Date.parse(value.createdAt)) && (value.cashSessionId === undefined || typeof value.cashSessionId === 'string') && (value.creditId === undefined || typeof value.creditId === 'string') && (value.status === 'completed' ? typeof value.completedAt === 'string' && Number.isFinite(Date.parse(value.completedAt)) : value.completedAt === undefined) && (value.method === 'customer_credit' ? value.status === 'completed' && typeof value.creditId === 'string' : value.creditId === undefined);
@@ -277,10 +361,10 @@ function isCustomerCredit(value: unknown): value is CustomerCredit {
   return isRecord(value) && typeof value.id === 'string' && typeof value.receiptNumber === 'string' && typeof value.authCodeHash === 'string' && /^[a-f0-9]{64}$/.test(value.authCodeHash) && typeof value.originalSaleId === 'string' && Number.isSafeInteger(value.originalSaleNumber) && typeof value.issuedAt === 'string' && Number.isFinite(Date.parse(value.issuedAt)) && Number.isSafeInteger(value.originalAmountInCents) && Number(value.originalAmountInCents) > 0 && Number.isSafeInteger(value.balanceInCents) && Number(value.balanceInCents) >= 0 && Number(value.balanceInCents) <= Number(value.originalAmountInCents) && ['available', 'partial', 'redeemed', 'cancelled'].includes(String(value.status));
 }
 function isCreditMovement(value: unknown): value is CustomerCreditMovement {
-  return isRecord(value) && typeof value.id === 'string' && typeof value.creditId === 'string' && ['issued', 'redeemed', 'restored'].includes(String(value.type)) && Number.isSafeInteger(value.amountInCents) && Number(value.amountInCents) > 0 && typeof value.createdAt === 'string';
+  return isRecord(value) && typeof value.id === 'string' && typeof value.creditId === 'string' && ['issued', 'redeemed', 'restored'].includes(String(value.type)) && Number.isSafeInteger(value.amountInCents) && Number(value.amountInCents) > 0 && typeof value.createdAt === 'string' && Number.isFinite(Date.parse(value.createdAt));
 }
 function isReservation(value: unknown): value is CreditReservation {
-  return isRecord(value) && typeof value.id === 'string' && typeof value.creditId === 'string' && typeof value.saleId === 'string' && Number.isSafeInteger(value.amountInCents) && Number(value.amountInCents) > 0 && typeof value.createdAt === 'string';
+  return isRecord(value) && typeof value.id === 'string' && typeof value.creditId === 'string' && typeof value.saleId === 'string' && Number.isSafeInteger(value.amountInCents) && Number(value.amountInCents) > 0 && typeof value.createdAt === 'string' && Number.isFinite(Date.parse(value.createdAt));
 }
 function isRecord(value: unknown): value is Record<string, any> { return typeof value === 'object' && value !== null && !Array.isArray(value); }
 function createId(): string { return typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`; }

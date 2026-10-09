@@ -5,7 +5,7 @@ import type { CustomerCredit } from '../types/customerCredit';
 
 export function CustomerCreditLookupPanel() {
   const [query, setQuery] = useState('');
-  const [results, setResults] = useState<CustomerCredit[]>([]);
+  const [results, setResults] = useState<Array<Omit<CustomerCredit, 'authCodeHash'>>>([]);
   const [searched, setSearched] = useState(false);
   const [error, setError] = useState('');
   function search() {

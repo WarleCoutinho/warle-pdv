@@ -1,3 +1,5 @@
+import { withFinancialLock } from './financialLock';
+import { getReturnedLineQuantities } from '../utils/saleLines';
 import { requireAdministrator } from './operatorAccess';
 import type { CashData } from '../types/cash';
 import type { Product } from '../types/product';
@@ -25,7 +27,9 @@ export type BackupDocument = { format: typeof BACKUP_FORMAT; version: typeof BAC
 export type BackupSummary = { exportedAt: string; products: number; activeProducts: number; sales: number; cancelledSales: number; cashSessions: number; closedSessions: number; cashMovements: number; returns: number; refunds: number; customerCredits: number };
 
 export function createBackupJson(): string {
-  const contents = JSON.stringify(createDocument(readCurrentData()), null, 2);
+  const data = readCurrentData();
+  validateFinancialRelations(data);
+  const contents = JSON.stringify(createDocument(data), null, 2);
   if (contents.length > 10 * 1024 * 1024) throw new Error('O backup excede o limite de 10 MB e não pode ser exportado com segurança.');
   return contents;
 }
@@ -57,26 +61,28 @@ export function parseBackupJson(contents: string): { backup: BackupDocument; sum
 }
 
 /** Keeps a pre-restore snapshot and compensates all touched keys if a write fails. */
-export function restoreBackup(backup: BackupDocument): void {
-  requireAdministrator();
-  const validated = parseBackupJson(JSON.stringify(backup)).backup;
-  const previous = new Map<string, string | null>(RESTORABLE_KEYS.map((key) => [key, localStorage.getItem(key)]));
-  try { localStorage.setItem(RESTORE_SAFETY_KEY, createSafetyCopy(previous)); }
-  catch { throw new Error('Não foi possível criar a cópia de segurança dos dados atuais. Nada foi restaurado. Libere espaço no armazenamento e tente novamente.'); }
-  try {
-    localStorage.setItem(PRODUCTS_STORAGE_KEY, JSON.stringify(validated.data.products));
-    localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(validated.data.settings));
-    localStorage.setItem(SALES_STORAGE_KEY, JSON.stringify(validated.data.sales));
-    localStorage.setItem(CASH_STORAGE_KEY, JSON.stringify(validated.data.cash));
-    localStorage.setItem(FINANCIAL_STORAGE_KEY, JSON.stringify(validated.data.financial));
-    localStorage.removeItem(CART_STORAGE_KEY);
-    if (typeof window !== 'undefined') window.dispatchEvent(new Event('raiz-pdv:data-changed'));
-  } catch {
-    let rollbackFailed = false;
-    for (const [key, oldValue] of previous) { try { if (oldValue === null) localStorage.removeItem(key); else localStorage.setItem(key, oldValue); } catch { rollbackFailed = true; } }
-    if (rollbackFailed) throw new Error('A restauração falhou e a reversão automática não foi completa. A cópia de segurança anterior está preservada localmente; não feche o sistema e procure suporte.');
-    throw new Error('A restauração falhou. Os dados anteriores foram preservados e restaurados.');
-  }
+export async function restoreBackup(backup: BackupDocument): Promise<void> {
+  return withFinancialLock(() => {
+    requireAdministrator();
+    const validated = parseBackupJson(JSON.stringify(backup)).backup;
+    const previous = new Map<string, string | null>(RESTORABLE_KEYS.map((key) => [key, localStorage.getItem(key)]));
+    try { localStorage.setItem(RESTORE_SAFETY_KEY, createSafetyCopy(previous)); }
+    catch { throw new Error('Não foi possível criar a cópia de segurança dos dados atuais. Nada foi restaurado. Libere espaço no armazenamento e tente novamente.'); }
+    try {
+      localStorage.setItem(PRODUCTS_STORAGE_KEY, JSON.stringify(validated.data.products));
+      localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(validated.data.settings));
+      localStorage.setItem(SALES_STORAGE_KEY, JSON.stringify(validated.data.sales));
+      localStorage.setItem(CASH_STORAGE_KEY, JSON.stringify(validated.data.cash));
+      localStorage.setItem(FINANCIAL_STORAGE_KEY, JSON.stringify(validated.data.financial));
+      localStorage.removeItem(CART_STORAGE_KEY);
+      if (typeof window !== 'undefined') window.dispatchEvent(new Event('raiz-pdv:data-changed'));
+    } catch {
+      let rollbackFailed = false;
+      for (const [key, oldValue] of previous) { try { if (oldValue === null) localStorage.removeItem(key); else localStorage.setItem(key, oldValue); } catch { rollbackFailed = true; } }
+      if (rollbackFailed) throw new Error('A restauração falhou e a reversão automática não foi completa. A cópia de segurança anterior está preservada localmente; não feche o sistema e procure suporte.');
+      throw new Error('A restauração falhou. Os dados anteriores foram preservados e restaurados.');
+    }
+  });
 }
 
 export function getRestoreSafetyCopy(): string | null {
@@ -98,6 +104,7 @@ function createSafetyCopy(previous: Map<string, string | null>): string {
     const data: BackupData = { products: validateProductsBackup(parseStored(previous.get(PRODUCTS_STORAGE_KEY))), settings: validateSettingsBackup(parseStored(previous.get(SETTINGS_STORAGE_KEY))),
       sales: validateSalesBackup(parseStored(previous.get(SALES_STORAGE_KEY))), cash: validateCashBackup(parseStored(previous.get(CASH_STORAGE_KEY))),
       financial: previous.get(FINANCIAL_STORAGE_KEY) === null ? emptySaleFinancialData() : validateSaleFinancialBackup(parseStored(previous.get(FINANCIAL_STORAGE_KEY))) };
+    validateFinancialRelations(data);
     return JSON.stringify(createDocument(data));
   } catch {
     const storage = Object.fromEntries(MANAGED_KEYS.map((key) => [key, previous.get(key) ?? null]));
@@ -131,12 +138,10 @@ function validateFinancialRelations(data: BackupData): void {
     return sale!;
   };
   const checkSession = (id?: string) => { if (id !== undefined && !cash.sessions.some((session) => session.id === id)) fail(); };
+  for (const sale of sales) checkSession(sale.cashSessionId);
   for (const entry of financial.returns) {
     const sale = saleFor(entry.saleId, entry.saleNumber); checkSession(entry.cashSessionId);
-    for (const line of entry.items) {
-      const original = sale.items.find((item) => item.productId === line.productId);
-      if (!original || original.unitPriceInCents * line.quantity !== line.amountInCents) fail();
-    }
+    try { getReturnedLineQuantities(sale, financial); } catch { fail(); }
   }
   for (const refund of financial.refunds) { saleFor(refund.saleId, refund.saleNumber); checkSession(refund.cashSessionId); if (refund.method === 'cash' && !refund.cashSessionId) fail(); }
   for (const credit of financial.credits) {
@@ -160,11 +165,14 @@ function validateFinancialRelations(data: BackupData): void {
     if (!reservation.saleId) fail();
   }
   for (const sale of sales) {
-    for (const item of sale.items) {
-      const returned = financial.returns.filter((entry) => entry.saleId === sale.id).flatMap((entry) => entry.items).filter((line) => line.productId === item.productId).reduce((total, line) => total + line.quantity, 0);
-      if (returned > item.quantity) fail();
-    }
+    try { getReturnedLineQuantities(sale, financial); } catch { fail(); }
     if (getSaleResolvedAmount(sale.id, financial) > getSaleEligibleAmount(sale, financial)) fail();
-    for (const payment of sale.payments.filter((item) => item.method === 'customer_credit')) if (!financial.credits.some((credit) => credit.id === payment.customerCreditId)) fail();
+    for (const id of new Set(sale.payments.filter((item) => item.method === 'customer_credit').map((item) => item.customerCreditId!))) {
+      if (!financial.credits.some((credit) => credit.id === id)) fail();
+      const tendered = sale.payments.filter((item) => item.customerCreditId === id).reduce((total, item) => total + item.amountInCents, 0);
+      const redeemed = financial.creditMovements.filter((item) => item.saleId === sale.id && item.creditId === id && item.type === 'redeemed').reduce((total, item) => total + item.amountInCents, 0);
+      const reserved = financial.creditReservations.filter((item) => item.saleId === sale.id && item.creditId === id).reduce((total, item) => total + item.amountInCents, 0);
+      if (redeemed + reserved !== tendered || (redeemed > 0 && reserved > 0)) fail();
+    }
   }
 }
