@@ -4,7 +4,8 @@ import { paymentMethodLabels, type SalePayment, type SaleTenderMethod } from '..
 import { calculatePaymentTotals, createSalePayment, formatMoneyInput } from '../utils/payments';
 import { formatMoney, parseMoneyInput } from '../utils/money';
 import { getNextWrappedIndex } from '../utils/keyboardNavigation';
-import { lookupCustomerCredit } from '../services/saleStorage';
+import { usePdvApplication } from '../application/context';
+import type { PublicCredit } from '../persistence/contracts';
 
 type PaymentModalProps = {
   totalInCents: number;
@@ -23,6 +24,7 @@ const methods: { id: SaleTenderMethod; icon: string; label: string }[] = [
 ];
 
 export function PaymentModal({ totalInCents, payments, onAddPayment, onRemovePayment, errorMessage, onClose, onFinalize }: PaymentModalProps) {
+  const application = usePdvApplication();
   const dialogRef = useModalFocus(onClose);
   const amountInputRef = useRef<HTMLInputElement>(null);
   const finalizeButtonRef = useRef<HTMLButtonElement>(null);
@@ -35,15 +37,15 @@ export function PaymentModal({ totalInCents, payments, onAddPayment, onRemovePay
   const [addingPayment, setAddingPayment] = useState(payments.length === 0);
   const { paidInCents, pendingInCents } = calculatePaymentTotals(totalInCents, payments);
   const enteredInCents = parseMoneyInput(amountInput);
-  const [verifiedCredit, setVerifiedCredit] = useState<Awaited<ReturnType<typeof lookupCustomerCredit>>>(undefined);
+  const [verifiedCredit, setVerifiedCredit] = useState<PublicCredit | undefined>(undefined);
   useEffect(() => {
     let active = true;
     setVerifiedCredit(undefined);
     if (method === 'customer_credit' && creditReceipt && creditAuthCode) {
-      void lookupCustomerCredit(creditReceipt, creditAuthCode).then((credit) => { if (active) setVerifiedCredit(credit); }).catch(() => { if (active) setVerifiedCredit(undefined); });
+      void application.credits.authenticate(creditReceipt, creditAuthCode).then((credit) => { if (active) setVerifiedCredit(credit); }).catch(() => { if (active) setVerifiedCredit(undefined); });
     }
     return () => { active = false; };
-  }, [method, creditReceipt, creditAuthCode]);
+  }, [application, method, creditReceipt, creditAuthCode]);
   const newPayment: SalePayment | null = enteredInCents === null ? null : method === 'customer_credit'
     ? verifiedCredit && enteredInCents > 0 && enteredInCents <= pendingInCents && enteredInCents <= verifiedCredit.balanceInCents - payments.filter((item) => item.customerCreditId === verifiedCredit.id).reduce((sum, item) => sum + item.amountInCents, 0)
       ? { method, amountInCents: enteredInCents, customerCreditId: verifiedCredit.id } : null

@@ -3,16 +3,16 @@ import { AppPageTopBar } from '../components/AppPageTopBar';
 import { usePersistedSales } from '../hooks/usePersistedSales';
 import { useModalFocus } from '../hooks/useModalFocus';
 import type { CashOperator } from '../types/settings';
-import { getOpenCashSession, getPendingCashSessions } from '../services/cashStorage';
+import { getOpenCashSession, getPendingCashSessions } from '../domain/cashSessions';
 import { cashLabel } from '../utils/cashDay';
 import type { CashData, CashMovement, CashSession } from '../types/cash';
 import type { AppPage } from '../types/navigation';
 import type { PaymentMethod } from '../types/payment';
 import type { Sale } from '../types/sale';
 import { formatMoney, parseMoneyInput } from '../utils/money';
-import { getCashReconciliationDraft, paymentMethods, type CashPaymentTotals, type CashReconciliationDraft } from '../utils/cash';
+import { getCashReconciliationDraft, paymentMethods, type CashPaymentTotals, type CashReconciliationDraft } from '../domain/cash';
 import { getSaleStatus } from '../utils/saleStatus';
-import { loadSaleFinancialData } from '../services/saleFinancialStorage';
+import type { SaleFinancialData } from '../types/customerCredit';
 
 type CashPageProps = {
   operators: CashOperator[];
@@ -28,8 +28,9 @@ const labels: Record<PaymentMethod | 'customer_credit', string> = { cash: 'Dinhe
 const dateTimeFormatter = new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
 const timeFormatter = new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
 
-export function CashPage({ operators, data, error, onNavigate, onOpen, onMovement, onClose }: CashPageProps) {
-  const { sales, financial, loading: salesLoading, error: salesError } = usePersistedSales();
+export function CashPage({ operators, data: contextData, error, onNavigate, onOpen, onMovement, onClose }: CashPageProps) {
+  const { cash: snapshotCash, sales, financial, loading: salesLoading, error: salesError } = usePersistedSales();
+  const data = snapshotCash ?? contextData;
   const actionBusy = useRef(false);
   const [modal, setModal] = useState<ModalKind>(null);
   const [operatorId, setOperatorId] = useState('');
@@ -42,7 +43,7 @@ export function CashPage({ operators, data, error, onNavigate, onOpen, onMovemen
   const pendingSessions = getPendingCashSessions(data);
   const draftState = useMemo(() => {
     if (!openSession || salesLoading || salesError || error) return { draft: null, error: null };
-    try { return { draft: getCashReconciliationDraft(openSession, data.movements, sales), error: null }; }
+    try { return { draft: getCashReconciliationDraft(openSession, data.movements, sales, financial), error: null }; }
     catch (cause) { return { draft: null, error: cause instanceof Error ? cause.message : 'Não foi possível apurar as vendas.' }; }
   }, [openSession, data.movements, sales, financial, salesLoading, salesError, error]);
   const summary = draftState.draft?.cashSummary ?? null;
@@ -53,7 +54,7 @@ export function CashPage({ operators, data, error, onNavigate, onOpen, onMovemen
   const closingSession = data.sessions.find((session) => session.id === closingSessionId) ?? openSession;
   const closingState = useMemo(() => {
     if (!closingSession || salesLoading || salesError || error) return { draft: null, error: null };
-    try { return { draft: getCashReconciliationDraft(closingSession, data.movements, sales), error: null }; }
+    try { return { draft: getCashReconciliationDraft(closingSession, data.movements, sales, financial), error: null }; }
     catch (failure) { return { draft: null, error: failure instanceof Error ? failure.message : 'Não foi possível conferir o caixa.' }; }
   }, [closingSession, data.movements, sales, financial, salesLoading, salesError, error]);
 
@@ -122,7 +123,7 @@ export function CashPage({ operators, data, error, onNavigate, onOpen, onMovemen
       </section>
       <section aria-labelledby="cash-movements-title" className="cash-panel">
         <div className="cash-panel-heading"><div><h2 id="cash-movements-title">Movimentações</h2><p>Vendas com todas as modalidades e movimentos de dinheiro físico desta sessão.</p></div></div>
-        <CashMovements sessionId={openSession.id} sales={sessionSales} movements={data.movements.filter((movement) => movement.cashSessionId === openSession.id)} />
+        <CashMovements financial={financial} sessionId={openSession.id} sales={sessionSales} movements={data.movements.filter((movement) => movement.cashSessionId === openSession.id)} />
         {sessionSales.some((sale) => getSaleStatus(sale) === 'cancelled' && sale.payments.length > 0) && <p className="cash-refund-note">Vendas canceladas permanecem no histórico. Somente reembolsos efetivamente realizados reduzem os recebimentos ou o dinheiro físico.</p>}
       </section>
     </>}
@@ -154,8 +155,7 @@ export function CashPage({ operators, data, error, onNavigate, onOpen, onMovemen
   </main>;
 }
 
-function CashMovements({ sales, movements, sessionId }: { sales: Sale[]; movements: CashMovement[]; sessionId: string }) {
-  const financial = loadSaleFinancialData();
+function CashMovements({ sales, movements, sessionId, financial }: { sales: Sale[]; movements: CashMovement[]; sessionId: string; financial: SaleFinancialData }) {
   const entries = [
     ...sales.map((sale) => {
       const cancelled = getSaleStatus(sale) === 'cancelled';

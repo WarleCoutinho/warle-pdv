@@ -1,3 +1,4 @@
+import { getOpenCashSession, getPendingCashSessions } from '../domain/cashSessions';
 import { withFinancialLock } from './financialLock';
 import { assertFinancialRecoveryComplete } from './saleFinancialStorage';
 import { requireCashOwner, requireOperator } from './operatorAccess';
@@ -22,12 +23,7 @@ export function loadCashData(): CashData {
   if (!isCashData(value)) throw new Error('Os dados do caixa salvos estão inválidos.');
   return value;
 }
-export function getOpenCashSession(data: CashData, now = new Date()): CashSession | undefined {
-  return data.sessions.find((session) => session.status === 'open' && (session.businessDate ?? cashBusinessDate(session.openedAt)) === cashBusinessDate(now));
-}
-export function getPendingCashSessions(data: CashData, now = new Date()): CashSession[] {
-  return data.sessions.filter((session) => session.status === 'open' && (session.businessDate ?? cashBusinessDate(session.openedAt)) !== cashBusinessDate(now));
-}
+export { getOpenCashSession, getPendingCashSessions } from '../domain/cashSessions';
 export function assertCurrentCashSession(sessionId: string): CashSession {
   const session = getOpenCashSession(loadCashData());
   if (!session || session.id !== sessionId) throw new Error('Este caixa não está aberto para hoje. Feche o caixa pendente e abra um novo para vender.');

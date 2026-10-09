@@ -1,11 +1,7 @@
+import type { BackupData, BackupDocument, BackupSummary } from '../types/backup';
 import { withFinancialLock } from './financialLock';
 import { getReturnedLineQuantities } from '../utils/saleLines';
 import { requireAdministrator } from './operatorAccess';
-import type { CashData } from '../types/cash';
-import type { Product } from '../types/product';
-import type { Sale } from '../types/sale';
-import type { StoreSettings } from '../types/settings';
-import type { SaleFinancialData } from '../types/customerCredit';
 import { emptySaleFinancialData } from '../types/customerCredit';
 import { CART_STORAGE_KEY } from './cartStorage';
 import { CASH_STORAGE_KEY, loadCashData, validateCashBackup } from './cashStorage';
@@ -22,10 +18,7 @@ const LEGACY_MANAGED_KEYS = [PRODUCTS_STORAGE_KEY, SETTINGS_STORAGE_KEY, SALES_S
 const MANAGED_KEYS = [...LEGACY_MANAGED_KEYS, FINANCIAL_STORAGE_KEY] as const;
 const RESTORABLE_KEYS = [...MANAGED_KEYS, CART_STORAGE_KEY] as const;
 
-export type BackupData = { products: Product[]; settings: StoreSettings; sales: Sale[]; cash: CashData; financial: SaleFinancialData };
-export type BackupDocument = { format: typeof BACKUP_FORMAT; version: typeof BACKUP_VERSION; exportedAt: string; data: BackupData; integrity: { algorithm: 'fnv1a-32'; checksum: string } };
-export type BackupSummary = { exportedAt: string; products: number; activeProducts: number; sales: number; cancelledSales: number; cashSessions: number; closedSessions: number; cashMovements: number; returns: number; refunds: number; customerCredits: number };
-
+export type { BackupData, BackupDocument, BackupSummary } from '../types/backup';
 export function createBackupJson(): string {
   const data = readCurrentData();
   validateFinancialRelations(data);

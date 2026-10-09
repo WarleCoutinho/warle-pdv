@@ -8,7 +8,7 @@ import { filterSalesByPeriod, filterRecordedSalesByPeriod, getPaymentTotals, get
 import { paymentMethodLabels } from '../types/payment';
 import { usePersistedSales } from '../hooks/usePersistedSales';
 import type { CashData } from '../types/cash';
-import { getOpenCashSession } from '../services/cashStorage';
+import { getOpenCashSession } from '../domain/cashSessions';
 import { cashLabel } from '../utils/cashDay';
 import { getCashSummary } from '../utils/cash';
 

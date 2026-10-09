@@ -1,3 +1,4 @@
+import { SaleCreditFinalizationPendingError } from '../domain/errors';
 // Authentication and consumption share one service module, including during Vite hot reload.
 export { lookupCustomerCredit } from './saleFinancialStorage';
 import { requireOperator } from './operatorAccess';
@@ -10,13 +11,7 @@ import { calculatePaymentTotals } from '../utils/payments';
 import { isCompletedSale } from '../utils/saleStatus';
 import { commitCreditRedemptions, releaseCreditReservations, reserveCreditRedemptions, restoreCreditsForCancelledSale, withCustomerCreditLock, assertFinancialRecoveryComplete, assertCreditAuthorization, getSaleResolvedAmount, loadSaleFinancialData } from './saleFinancialStorage';
 
-export class SaleCreditFinalizationPendingError extends Error {
-  constructor(public readonly saleId: string) {
-    super('A venda foi salva, mas a baixa do crédito está pendente de recuperação. Não repita a venda; atualize o sistema. A venda e a reserva foram preservadas.');
-    this.name = 'SaleCreditFinalizationPendingError';
-  }
-}
-
+export { SaleCreditFinalizationPendingError } from '../domain/errors';
 export const SALES_STORAGE_KEY = 'raiz-pdv:completed-sales';
 
 export function validateSalesBackup(value: unknown): Sale[] {

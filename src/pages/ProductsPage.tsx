@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent } from 'react';
+import { useMemo, useRef, useState, type FormEvent } from 'react';
 import { useModalFocus } from '../hooks/useModalFocus';
 import { AppPageTopBar } from '../components/AppPageTopBar';
 import type { AppPage } from '../types/navigation';
@@ -8,7 +8,7 @@ import { formatMoney, parseMoneyInput } from '../utils/money';
 type ProductDraft = Pick<Product, 'name' | 'category' | 'priceInCents' | 'active' | 'imageDataUrl'>;
 type ProductsPageProps = {
   products: Product[];
-  onProductsChange: (products: Product[]) => void;
+  onProductsChange: (products: Product[]) => Promise<void>;
   onNavigate: (page: AppPage) => void;
 };
 
@@ -16,10 +16,13 @@ type ProductFormProps = {
   categories: string[];
   product?: Product;
   onClose: () => void;
-  onSave: (draft: ProductDraft) => void;
+  onSave: (draft: ProductDraft) => Promise<void>;
+  saving: boolean;
 };
 
 export function ProductsPage({ products, onProductsChange, onNavigate }: ProductsPageProps) {
+  const busy = useRef(false);
+  const [saving, setSaving] = useState(false);
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState('Todas');
   const [status, setStatus] = useState<'all' | 'active' | 'inactive'>('all');
@@ -39,27 +42,29 @@ export function ProductsPage({ products, onProductsChange, onNavigate }: Product
     });
   }, [category, products, search, status]);
 
-  function saveDraft(draft: ProductDraft) {
+  async function saveDraft(draft: ProductDraft) {
+    if (busy.current) return; busy.current = true; setSaving(true);
     const next = creating
       ? [...products, { ...draft, id: createProductId(), emoji: '📦' }]
       : products.map((product) => product.id === editing?.id ? { ...product, ...draft } : product);
     try {
-      onProductsChange(next);
+      await onProductsChange(next);
       setError('');
       setCreating(false);
       setEditing(null);
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : 'Não foi possível salvar o produto.');
-    }
+    } finally { busy.current = false; setSaving(false); }
   }
 
-  function toggleActive(product: Product) {
+  async function toggleActive(product: Product) {
+    if (busy.current) return; busy.current = true; setSaving(true);
     try {
-      onProductsChange(products.map((item) => item.id === product.id ? { ...item, active: !item.active } : item));
+      await onProductsChange(products.map((item) => item.id === product.id ? { ...item, active: !item.active } : item));
       setError('');
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : 'Não foi possível atualizar o produto.');
-    }
+    } finally { busy.current = false; setSaving(false); }
   }
 
   return (
@@ -113,12 +118,12 @@ export function ProductsPage({ products, onProductsChange, onNavigate }: Product
         )}
       </section>
 
-      {(creating || editing) && <ProductForm categories={categories.filter((item) => item !== 'Todas')} key={editing?.id ?? 'new'} onClose={() => { setCreating(false); setEditing(null); }} onSave={saveDraft} product={editing ?? undefined} />}
+      {(creating || editing) && <ProductForm saving={saving} categories={categories.filter((item) => item !== 'Todas')} key={editing?.id ?? 'new'} onClose={() => { setCreating(false); setEditing(null); }} onSave={saveDraft} product={editing ?? undefined} />}
     </main>
   );
 }
 
-function ProductForm({ categories, product, onClose, onSave }: ProductFormProps) {
+function ProductForm({ categories, product, onClose, onSave, saving }: ProductFormProps) {
   const dialogRef = useModalFocus(onClose);
   const [name, setName] = useState(product?.name ?? '');
   const [category, setCategory] = useState(product?.category ?? '');
@@ -130,6 +135,7 @@ function ProductForm({ categories, product, onClose, onSave }: ProductFormProps)
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (saving) return;
     const parsedPrice = parseMoneyInput(price);
     const nextErrors = {
       ...(name.trim() ? {} : { name: 'Informe o nome do produto.' }),
@@ -138,7 +144,7 @@ function ProductForm({ categories, product, onClose, onSave }: ProductFormProps)
     };
     setErrors(nextErrors);
     if (Object.keys(nextErrors).length > 0 || parsedPrice === null) return;
-    onSave({ name: name.trim(), category: category.trim(), priceInCents: parsedPrice, active, imageDataUrl: imageDataUrl || undefined });
+    void onSave({ name: name.trim(), category: category.trim(), priceInCents: parsedPrice, active, imageDataUrl: imageDataUrl || undefined });
   }
 
   return (
@@ -187,7 +193,7 @@ function ProductForm({ categories, product, onClose, onSave }: ProductFormProps)
             </div>
             {product && <label className="product-active-field"><input checked={active} onChange={(event) => setActive(event.target.checked)} type="checkbox" /> Produto ativo</label>}
           </div>
-          <div className="modalfoot"><button className="btn secondary" onClick={onClose} type="button">Cancelar</button><button className="btn primary" type="submit">Salvar produto</button></div>
+          <div className="modalfoot"><button className="btn secondary" onClick={onClose} type="button">Cancelar</button><button className="btn primary" disabled={saving} type="submit">{saving ? 'Salvando…' : 'Salvar produto'}</button></div>
         </form>
       </section>
     </div>

@@ -1,3 +1,4 @@
+import * as financialDomain from '../domain/financial';
 import { CART_STORAGE_KEY } from './cartStorage';
 import type { PaymentMethod } from '../types/payment';
 import type { Sale } from '../types/sale';
@@ -41,32 +42,11 @@ export function validateSaleFinancialBackup(value: unknown): SaleFinancialData {
 
 export function clearSaleFinancialData(): void { localStorage.removeItem(FINANCIAL_STORAGE_KEY); }
 
-export function getSaleEligibleAmount(sale: Sale, data = loadSaleFinancialData()): number {
-  if (getSaleStatus(sale) === 'cancelled') return sale.totalInCents;
-  return sumMoney(data.returns.filter((item) => item.saleId === sale.id).map((item) => item.amountInCents));
-}
-
-export function getSaleResolvedAmount(saleId: string, data = loadSaleFinancialData()): number {
-  return sumMoney([...data.refunds.filter((refund) => refund.saleId === saleId && refund.status !== 'failed').map((refund) => refund.amountInCents), ...data.creditMovements.filter((movement) => movement.saleId === saleId && movement.type === 'restored').map((movement) => movement.amountInCents)]);
-}
-
-export function getSaleUnresolvedAmount(sale: Sale, data = loadSaleFinancialData()): number {
-  return Math.max(0, getSaleEligibleAmount(sale, data) - getSaleResolvedAmount(sale.id, data));
-}
-
-export function getSessionRefundTotals(sessionId: string, data = loadSaleFinancialData()): Record<PaymentMethod, number> {
-  const totals: Record<PaymentMethod, number> = { cash: 0, pix: 0, debit: 0, credit: 0 };
-  for (const refund of data.refunds) {
-    if (refund.cashSessionId !== sessionId || refund.status !== 'completed' || refund.method === 'customer_credit') continue;
-    totals[refund.method] = sumMoney([totals[refund.method], refund.amountInCents]);
-  }
-  return totals;
-}
-
-export function getCustomerCreditReceivedBySession(sessionId: string, sales: Sale[]): number {
-  return sumMoney(sales.filter((sale) => sale.cashSessionId === sessionId)
-    .flatMap((sale) => sale.payments.filter((payment) => payment.method === 'customer_credit').map((payment) => payment.amountInCents)));
-}
+export function getSaleEligibleAmount(sale: Sale, data = loadSaleFinancialData()) { return financialDomain.getSaleEligibleAmount(sale, data); }
+export function getSaleResolvedAmount(saleId: string, data = loadSaleFinancialData()) { return financialDomain.getSaleResolvedAmount(saleId, data); }
+export function getSaleUnresolvedAmount(sale: Sale, data = loadSaleFinancialData()) { return financialDomain.getSaleUnresolvedAmount(sale, data); }
+export function getSessionRefundTotals(sessionId: string, data = loadSaleFinancialData()) { return financialDomain.getSessionRefundTotals(sessionId, data); }
+export { getCustomerCreditReceivedBySession } from '../domain/financial';
 
 export async function recordMerchandiseReturn(sale: Sale, quantities: Record<string, number>, cashSessionId?: string): Promise<SaleFinancialData> {
   return withCustomerCreditLock(() => {

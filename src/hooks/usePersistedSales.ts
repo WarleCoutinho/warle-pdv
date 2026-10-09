@@ -1,44 +1,31 @@
 import { useEffect, useState } from 'react';
-import { loadSaleFinancialData, FINANCIAL_STORAGE_KEY } from '../services/saleFinancialStorage';
+import { usePdvApplication } from '../application/context';
 import { emptySaleFinancialData } from '../types/customerCredit';
+import type { CashData } from '../types/cash';
 import type { Sale } from '../types/sale';
-import { listSales } from '../services/saleStorage';
-
-const SALES_STORAGE_KEY = 'raiz-pdv:completed-sales';
-
 export function usePersistedSales() {
+  const application = usePdvApplication();
+  const [cash, setCash] = useState<CashData | null>(null);
   const [sales, setSales] = useState<Sale[]>([]);
   const [financial, setFinancial] = useState(emptySaleFinancialData);
   const [referenceDate, setReferenceDate] = useState(() => new Date());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-
   useEffect(() => {
-    function refreshSales() {
+    let active = true; let revision = 0;
+    async function refresh() {
+      const request = ++revision;
       try {
-        const nextSales = listSales();
-        const nextFinancial = loadSaleFinancialData();
-        setSales(nextSales); setFinancial(nextFinancial); setReferenceDate(new Date());
-        setError(null);
-      } catch {
-        setError('Não foi possível carregar as vendas ou registros financeiros salvos. Verifique os dados no armazenamento local.');
-      } finally {
-        setLoading(false);
-      }
+        const snapshot = await application.financial.snapshot();
+        if (!active || request !== revision) return;
+        setCash(snapshot.cash); setSales(snapshot.sales); setFinancial(snapshot.financial); setReferenceDate(new Date()); setError(null);
+      } catch { if (active && request === revision) setError('Não foi possível carregar as vendas ou registros financeiros salvos. Verifique os dados no armazenamento local.'); }
+      finally { if (active && request === revision) setLoading(false); }
     }
-    function syncSales(event: StorageEvent) {
-      if (event.key === SALES_STORAGE_KEY || event.key === FINANCIAL_STORAGE_KEY || event.key === null) refreshSales();
-    }
-    refreshSales();
-    window.addEventListener('storage', syncSales);
-    window.addEventListener('raiz-pdv:data-changed', refreshSales);
-    window.addEventListener('focus', refreshSales);
-    const timer = window.setInterval(refreshSales, 60000);
-    return () => { window.removeEventListener('storage', syncSales);
-      window.removeEventListener('raiz-pdv:data-changed', refreshSales);
-      window.removeEventListener('focus', refreshSales);
-      window.clearInterval(timer); };
-  }, []);
-
-  return { sales, financial, referenceDate, loading, error };
+    void refresh();
+    const unsubscribe = application.changes.subscribe(['sales', 'financial', 'cash'], () => { void refresh(); });
+    const timer = window.setInterval(() => { void refresh(); }, 60000);
+    return () => { active = false; ++revision; unsubscribe(); window.clearInterval(timer); };
+  }, [application]);
+  return { cash, sales, financial, referenceDate, loading, error };
 }

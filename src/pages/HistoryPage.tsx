@@ -6,7 +6,7 @@ import { paymentMethodLabels, type SaleTenderMethod } from '../types/payment';
 import type { AppPage } from '../types/navigation';
 import { saleCancellationReasonLabels, type Sale, type SaleCancellationReason } from '../types/sale';
 import type { StoreSettings } from '../types/settings';
-import { cancelSaleAndRestoreCustomerCredit } from '../services/saleStorage';
+import { usePdvApplication } from '../application/context';
 import { SaleFinancialPanel } from '../components/SaleFinancialPanel';
 import { CustomerCreditLookupPanel } from '../components/CustomerCreditLookupPanel';
 import { usePersistedSales } from '../hooks/usePersistedSales';
@@ -173,6 +173,7 @@ type SaleDetailsModalProps = {
 };
 
 function SaleDetailsModal({ sale, onSaleUpdated, onClose, settings }: SaleDetailsModalProps) {
+  const application = usePdvApplication();
   const [paperSize, setPaperSize] = useState<ReceiptPaperSize>('80mm');
   const [showCancellation, setShowCancellation] = useState(false);
   const [cancellationError, setCancellationError] = useState<string | null>(null);
@@ -240,7 +241,7 @@ function SaleDetailsModal({ sale, onSaleUpdated, onClose, settings }: SaleDetail
           </div>
         </div>
       </section>
-      {showCancellation && <SaleCancellationModal error={cancellationError} onClose={() => setShowCancellation(false)} onConfirm={async (reason, note) => { try { const updated = await cancelSaleAndRestoreCustomerCredit(sale.id, reason, note); onSaleUpdated(updated); setShowCancellation(false); } catch (error) { setCancellationError(error instanceof Error ? error.message : 'Não foi possível cancelar a venda.'); } }} sale={sale} />}
+      {showCancellation && <SaleCancellationModal error={cancellationError} onClose={() => setShowCancellation(false)} onConfirm={async (reason, note) => { try { const updated = await application.sales.cancel(sale.id, reason, note); onSaleUpdated(updated); setShowCancellation(false); } catch (error) { setCancellationError(error instanceof Error ? error.message : 'Não foi possível cancelar a venda.'); } }} sale={sale} />}
     </div>
   );
 }

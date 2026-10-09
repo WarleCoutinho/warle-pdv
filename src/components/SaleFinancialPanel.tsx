@@ -1,15 +1,14 @@
+import { usePdvApplication } from '../application/context';
+import { usePersistedSales } from '../hooks/usePersistedSales';
+import { getSaleEligibleAmount, getSaleResolvedAmount } from '../domain/financial';
 import { getSaleLines, getReturnedLineQuantities } from '../utils/saleLines';
-import { useEffect, useState, type FormEvent } from 'react';
+import { useRef, useState, type FormEvent } from 'react';
 import { useModalFocus } from '../hooks/useModalFocus';
 import { createPortal } from 'react-dom';
 import { printCustomerCreditReceipt } from '../utils/printing';
 import type { Sale } from '../types/sale';
 import type { PaymentMethod } from '../types/payment';
-import { getOpenCashSession, loadCashData } from '../services/cashStorage';
-import { loadSaleFinancialData, recordMerchandiseReturn, settleSaleBalance, getSaleEligibleAmount, getSaleResolvedAmount, updatePendingRefund } from '../services/saleFinancialStorage';
-import { listSales } from '../services/saleStorage';
 import { formatMoney, parseMoneyInput, sumMoney } from '../utils/money';
-import { getCashSummary } from '../utils/cash';
 import { getSaleStatus } from '../utils/saleStatus';
 import type { SaleFinancialData } from '../types/customerCredit';
 import type { StoreSettings } from '../types/settings';
@@ -19,17 +18,17 @@ const refundMethods: Array<PaymentMethod | 'customer_credit'> = ['cash', 'pix', 
 const refundLabels: Record<PaymentMethod | 'customer_credit', string> = { cash: 'Dinheiro', pix: 'Pix', debit: 'Débito', credit: 'Crédito', customer_credit: 'Crédito do cliente' };
 
 export function SaleFinancialPanel({ sale, settings }: { sale: Sale; settings: StoreSettings }) {
-  const [financial, setFinancial] = useState<SaleFinancialData>(() => loadSaleFinancialData());
+  const application = usePdvApplication();
+  const { financial: loadedFinancial, loading, error: loadError } = usePersistedSales();
+  const [financialOverride, setFinancial] = useState<{ data: SaleFinancialData; source: SaleFinancialData } | null>(null);
+  const financial = financialOverride?.source === loadedFinancial ? financialOverride.data : loadedFinancial;
+  const busy = useRef(false);
   const [showReturn, setShowReturn] = useState(false);
   const [showSettlement, setShowSettlement] = useState(false);
   const [receipts, setReceipts] = useState<IssuedReceipt[]>([]);
   const creditDialogRef = useModalFocus<HTMLElement>(() => setReceipts([]), { active: receipts.length > 0 });
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
-  useEffect(() => {
-    const refresh = () => { try { setFinancial(loadSaleFinancialData()); setError(''); } catch { setError('Não foi possível carregar o histórico financeiro.'); } };
-    refresh(); window.addEventListener('storage', refresh); return () => window.removeEventListener('storage', refresh);
-  }, []);
   const eligible = getSaleEligibleAmount(sale, financial);
   const resolved = getSaleResolvedAmount(sale.id, financial);
   const available = Math.max(0, eligible - resolved);
@@ -37,47 +36,31 @@ export function SaleFinancialPanel({ sale, settings }: { sale: Sale; settings: S
   const saleRefunds = financial.refunds.filter((item) => item.saleId === sale.id);
 
   async function saveSettlement(amounts: Record<PaymentMethod | 'customer_credit', number>, statuses: Partial<Record<PaymentMethod, 'completed' | 'pending'>>) {
-    if (saving) return;
+    if (busy.current) return; busy.current = true;
     setSaving(true); setError('');
     try {
-      const cashData = loadCashData();
-      const openSession = getOpenCashSession(cashData);
-      const actualCash = amounts.cash > 0 && statuses.cash !== 'pending';
-      if (actualCash && !openSession) throw new Error('Abra um caixa para registrar uma devolução efetiva em dinheiro.');
-      if (actualCash && openSession) {
-        const physical = getCashSummary(openSession, cashData.movements, listSales()).expectedInCents;
-        if (amounts.cash > physical) throw new Error('O valor do reembolso em dinheiro excede o saldo físico disponível no caixa.');
-      }
-      const result = await settleSaleBalance(sale, { amounts, statuses, cashSessionId: openSession?.id });
-      setFinancial(result.data); setReceipts(result.issuedCredits.map(({ credit, authCode }) => ({ receiptNumber: credit.receiptNumber, originalSaleNumber: credit.originalSaleNumber, issuedAt: credit.issuedAt, amountInCents: credit.originalAmountInCents, authCode })));
+      const result = await application.settle(sale, { amounts, statuses });
+      setFinancial({ data: result.data, source: loadedFinancial }); setReceipts(result.issuedCredits.map(({ credit, authCode }) => ({ receiptNumber: credit.receiptNumber, originalSaleNumber: credit.originalSaleNumber, issuedAt: credit.issuedAt, amountInCents: credit.originalAmountInCents, authCode })));
       setShowSettlement(false);
-    } catch (failure) { setError(failure instanceof Error ? failure.message : 'Não foi possível registrar a resolução financeira.'); } finally { setSaving(false); }
+    } catch (failure) { setError(failure instanceof Error ? failure.message : 'Não foi possível registrar a resolução financeira.'); } finally { busy.current = false; setSaving(false); }
   }
 
   async function saveReturn(quantities: Record<string, number>) {
-    try { const current = getOpenCashSession(loadCashData()); const next = await recordMerchandiseReturn(sale, quantities, current?.id); setFinancial(next); setShowReturn(false); setShowSettlement(true); setError(''); }
+    if (busy.current) return; busy.current = true; setSaving(true);
+    try { const next = await application.recordReturn(sale, quantities); setFinancial({ data: next, source: loadedFinancial }); setShowReturn(false); setShowSettlement(true); setError(''); }
     catch (failure) { setError(failure instanceof Error ? failure.message : 'Não foi possível registrar a devolução.'); }
+    finally { busy.current = false; setSaving(false); }
   }
-
-  async function failPending(refundId: string) {
-    try { setFinancial(await updatePendingRefund(refundId, 'failed')); setError(''); }
-    catch (failure) { setError(failure instanceof Error ? failure.message : 'Não foi possível registrar a falha.'); }
+  async function changeRefund(refundId: string, status: 'completed' | 'failed') {
+    if (busy.current) return; busy.current = true; setSaving(true);
+    try { const next = await application.updateRefund(refundId, status); setFinancial({ data: next, source: loadedFinancial }); setError(''); }
+    catch (failure) { setError(failure instanceof Error ? failure.message : 'Não foi possível atualizar o reembolso.'); }
+    finally { busy.current = false; setSaving(false); }
   }
-
-  async function resolvePending(refundId: string) {
-    try {
-      const open = getOpenCashSession(loadCashData());
-      const refund = financial.refunds.find((item) => item.id === refundId);
-      if (!refund) return;
-      if (refund.method === 'cash' && !open) throw new Error('Abra um caixa para concluir este reembolso em dinheiro.');
-      if (refund.method === 'cash' && open) {
-        const cashData = loadCashData();
-        const physical = getCashSummary(open, cashData.movements, listSales()).expectedInCents;
-        if (refund.amountInCents > physical) throw new Error('O reembolso excede o dinheiro físico disponível no caixa.');
-      }
-      setFinancial(await updatePendingRefund(refundId, 'completed', open?.id)); setError('');
-    } catch (failure) { setError(failure instanceof Error ? failure.message : 'Não foi possível atualizar o reembolso.'); }
-  }
+  const failPending = (id: string) => changeRefund(id, 'failed');
+  const resolvePending = (id: string) => changeRefund(id, 'completed');
+  if (loading) return <p role="status">Carregando histórico financeiro…</p>;
+  if (loadError) return <p role="alert">{loadError}</p>;
 
   return <section className="sale-financial-panel" aria-label="Devoluções e resoluções financeiras">
     <div className="sale-financial-heading"><div><h3>Devoluções e reembolsos</h3><p>1. Selecione os itens recebidos. 2. Escolha como devolver o valor ao cliente.</p></div><span>Ainda pode devolver: {formatMoney(available)}</span></div>

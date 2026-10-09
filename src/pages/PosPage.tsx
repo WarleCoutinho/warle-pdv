@@ -1,12 +1,11 @@
+import { usePdvApplication } from '../application/context';
+import { SaleCreditFinalizationPendingError } from '../domain/errors';
 import { useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { CartPanel } from '../components/CartPanel';
 import { FinalizeSummary } from '../components/FinalizeSummary';
 import { PaymentModal } from '../components/PaymentModal';
 import { PosHeader } from '../components/PosHeader';
 import { ProductCatalog } from '../components/ProductCatalog';
-import { loadDraftCart, saveDraftCart } from '../services/cartStorage';
-import { saveCompletedSale, saveCompletedSaleWithCustomerCredit, SaleCreditFinalizationPendingError } from '../services/saleStorage';
-import { getOpenCashSession, loadCashData } from '../services/cashStorage';
 import type { CartItem, Product } from '../types/product';
 import type { SalePayment } from '../types/payment';
 import type { Sale } from '../types/sale';
@@ -21,7 +20,8 @@ type CartAction =
   | { type: 'increment'; productId: string }
   | { type: 'decrement'; productId: string }
   | { type: 'remove'; productId: string }
-  | { type: 'clear' };
+  | { type: 'clear' }
+  | { type: 'hydrate'; items: CartItem[] };
 
 function cartReducer(items: CartItem[], action: CartAction): CartItem[] {
   switch (action.type) {
@@ -43,6 +43,7 @@ function cartReducer(items: CartItem[], action: CartAction): CartItem[] {
       });
     case 'remove':
       return items.filter((item) => item.product.id !== action.productId);
+    case 'hydrate': return action.items;
     case 'clear':
       return [];
   }
@@ -58,8 +59,14 @@ type PosPageProps = {
 };
 
 export function PosPage({ onNavigate, products, settings, cashSessionId, cashSessionLabel, hasPendingCash }: PosPageProps) {
+  const application = usePdvApplication();
+  const initialProducts = useRef(products);
+  const [cartLoadAttempt, setCartLoadAttempt] = useState(0);
+  const [cartReady, setCartReady] = useState(false);
+  const [cartError, setCartError] = useState<string | null>(null);
+  const skipHydratedSave = useRef(true);
   const finalizingSale = useRef(false);
-  const [cart, dispatch] = useReducer(cartReducer, products, loadDraftCart);
+  const [cart, dispatch] = useReducer(cartReducer, []);
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState('Todos');
   const [showPayment, setShowPayment] = useState(false);
@@ -83,8 +90,19 @@ export function PosPage({ onNavigate, products, settings, cashSessionId, cashSes
   const totalInCents = sumMoney(cart.map((item) => item.subtotalInCents));
 
   useEffect(() => {
-    saveDraftCart(cart);
-  }, [cart]);
+    let active = true; setCartError(null);
+    void application.draft.load(initialProducts.current).then((items) => {
+      if (!active) return; dispatch({ type: 'hydrate', items }); setCartReady(true);
+    }).catch((failure: unknown) => { if (active) setCartError(failure instanceof Error ? failure.message : 'Não foi possível recuperar o carrinho.'); });
+    return () => { active = false; };
+  }, [application, cartLoadAttempt]);
+  useEffect(() => {
+    if (!cartReady) return;
+    if (skipHydratedSave.current) { skipHydratedSave.current = false; return; }
+    let active = true;
+    void application.draft.save(cart).then(() => { if (active) setCartError(null); }).catch(() => { if (active) setCartError('Não foi possível salvar o rascunho do carrinho.'); });
+    return () => { active = false; };
+  }, [application, cart, cartReady]);
 
   function startNewSale() {
     finalizingSale.current = false;
@@ -117,23 +135,21 @@ export function PosPage({ onNavigate, products, settings, cashSessionId, cashSes
 
   async function finalizePayment() {
     if (!cashSessionId || finalizingSale.current || cart.length === 0 || payments.length === 0) return;
-    const persistedOpenSession = getOpenCashSession(loadCashData());
-    if (!persistedOpenSession || persistedOpenSession.id !== cashSessionId) { setPaymentError('O caixa foi fechado ou trocado. Abra o caixa novamente antes de concluir a venda.'); return; }
     if (calculatePaymentTotals(totalInCents, payments).pendingInCents !== 0) return;
     finalizingSale.current = true; setPaymentError(null);
     try {
-      const sale = payments.some((payment) => payment.method === 'customer_credit')
-        ? await saveCompletedSaleWithCustomerCredit(cart, totalInCents, payments, cashSessionId)
-        : await saveCompletedSale(cart, totalInCents, payments, cashSessionId);
-      saveDraftCart([]); setCompletedSale(sale); setShowPayment(false); setPayments([]); dispatch({ type: 'clear' });
+      const sale = await application.completeSale({ items: cart, totalInCents, payments, cashSessionId });
+      setCompletedSale(sale); setShowPayment(false); setPayments([]); dispatch({ type: 'clear' });
+      try { await application.draft.save([]); } catch { setCartError('A venda foi salva, mas não foi possível limpar o rascunho. Não repita a venda.'); }
     } catch (error) {
       if (error instanceof SaleCreditFinalizationPendingError) {
-        saveDraftCart([]); dispatch({ type: 'clear' }); setPayments([]); setShowPayment(false);
+        void application.draft.save([]).catch(() => setCartError('Venda salva com recuperação pendente; não repita a venda.')); dispatch({ type: 'clear' }); setPayments([]); setShowPayment(false);
       } else finalizingSale.current = false;
       setPaymentError(error instanceof Error ? error.message : 'Não foi possível salvar a venda. Verifique o armazenamento local e tente novamente.');
     }
   }
 
+  if (!cartReady && cashSessionId) return <main className="content"><p role="status">Carregando carrinho…</p>{cartError && <><p role="alert">{cartError}</p><button type="button" onClick={() => setCartLoadAttempt((value) => value + 1)}>Tentar recuperar carrinho</button></>}</main>;
   return (
     !cashSessionId ? <main className="content cash-blocked-content">
       <div className="cash-closed-card"><span aria-hidden="true" className="cash-state-icon">◷</span><h1>{hasPendingCash ? "Caixa pendente de fechamento" : "Entrada do operador"}</h1>
@@ -152,6 +168,7 @@ export function PosPage({ onNavigate, products, settings, cashSessionId, cashSes
             </div>
             <span className="open-pill">● Caixa {cashSessionLabel}</span>
           </div>
+          {cartError && <p className="sale-save-error" role="alert">{cartError}</p>}
           {paymentError && !showPayment && <p className="sale-save-error" role="alert">{paymentError}</p>}
           <div className="pos">
             <ProductCatalog

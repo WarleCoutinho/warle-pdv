@@ -92,3 +92,12 @@ Vendas, cancelamentos, resoluções, movimentações/fechamento de caixa e resta
 `npm test` executa todos os arquivos `tests/*.test.mjs`. `npm run test:ui` executa os três testes de interface com Playwright e Microsoft Edge instalado; inicie o app em `http://127.0.0.1:5173/` antes. `npm run test:all` combina testes de domínio, interface e build. Os navegadores de teste usam contextos isolados; evidências novas ficam em `outputs/etapa-11-2/`.
 
 Consulte [o relatório da Etapa 11.2](docs/etapa-11-2-estabilizacao.md) para diagnóstico, compatibilidade, testes e riscos remanescentes. O bloqueio entre abas e a recuperação compensatória não oferecem transações completas entre chaves do localStorage.
+
+
+## Etapa 12A — contratos assíncronos de persistência
+
+O Raiz PDV continua no navegador com as mesmas chaves e formatos locais. As telas usam a aplicação injetada via `ApplicationContext`, contratos Promise por agregado e `createWebRepositories()`. Venda, cancelamento, resolução, fechamento e restauração permanecem comandos completos, delegados aos serviços estabilizados. A apuração recebe snapshots explicitamente. Não há Electron, SQLite ou migração de dados nesta etapa.
+
+`npm test` inclui os testes da nova camada; `npm run test:ui` inclui os três roteiros anteriores e o novo roteiro assíncrono, com Edge e servidor em `http://127.0.0.1:5173/`. Os testes usam armazenamento em memória ou contextos de navegador isolados, sem limpar os dados da operação real. `npm run test:all` executa testes, interface e build.
+
+Consulte [o relatório 12A](docs/etapa-12a-persistencia.md) e [o modelo desktop atualizado](docs/preparacao-electron-sqlite.md), incluindo limites do localStorage, recuperação, idempotência futura e compatibilidade de backups v1/v2.

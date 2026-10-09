@@ -1,16 +1,21 @@
-import { useState } from 'react';
-import { searchCustomerCredits } from '../services/saleFinancialStorage';
+import { useEffect, useRef, useState } from 'react';
+import { usePdvApplication } from '../application/context';
 import { formatMoney } from '../utils/money';
 import type { CustomerCredit } from '../types/customerCredit';
 
 export function CustomerCreditLookupPanel() {
+  const application = usePdvApplication();
+  const request = useRef(0);
+  const active = useRef(true);
+  useEffect(() => { active.current = true; return () => { active.current = false; ++request.current; }; }, []);
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<Array<Omit<CustomerCredit, 'authCodeHash'>>>([]);
   const [searched, setSearched] = useState(false);
   const [error, setError] = useState('');
-  function search() {
-    try { setResults(searchCustomerCredits(query)); setSearched(true); setError(''); }
-    catch { setError('Não foi possível consultar os créditos salvos.'); }
+  async function search() {
+    const revision = ++request.current;
+    try { const found = await application.credits.search(query); if (!active.current || revision !== request.current) return; setResults(found); setSearched(true); setError(''); }
+    catch { if (!active.current || revision !== request.current) return; setError('Não foi possível consultar os créditos salvos.'); }
   }
   return <section className="customer-credit-lookup" aria-label="Consulta de créditos do cliente">
     <div><h2>Crédito de cliente</h2><p>Consulte por número do comprovante ou venda original. A autorização não é exibida.</p></div>
