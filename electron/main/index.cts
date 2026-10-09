@@ -2,6 +2,8 @@ import { app, BrowserWindow, ipcMain, protocol, session } from 'electron';
 import { existsSync, mkdirSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { join, extname } from 'node:path';
+import { SqliteFoundation } from './sqlite/database.cjs';
+import { DatabaseFailure } from './sqlite/errors.cjs';
 import type { AppInfoChannel, AppInfoReply } from '../shared/contracts.cjs';
 import { authorizeAppInfo, contentSecurityPolicy, DESKTOP_URL, ERROR_URL, isAllowedBackupDownload, isAllowedRequest, isTrustedDocument, resolveAssetPath, validateDevelopmentUrl, validateProfileArgument } from './security.cjs';
 const APP_INFO_CHANNEL: AppInfoChannel = 'raiz:desktop:app-info';
@@ -9,6 +11,7 @@ app.setName('Raiz PDV');
 app.enableSandbox();
 protocol.registerSchemesAsPrivileged([{ scheme: 'raiz', privileges: { standard: true, secure: true, supportFetchAPI: true } }]);
 let mainWindow: BrowserWindow | null = null;
+let foundation: SqliteFoundation | null = null;
 let failing = false;
 let developmentUrl: string | null = null;
 let failureCode = 'STARTUP_FAILED';
@@ -20,7 +23,7 @@ try {
   mkdirSync(dataPath, { recursive: true }); app.setPath('userData', dataPath);
   app.setPath('sessionData', dataPath);
 } catch { configurationError = true; }
-const diagnostics = new Set(['STARTUP_FAILED', 'MISSING_RENDERER', 'MISSING_PRELOAD', 'PRELOAD_ERROR', 'IPC_FAILED', 'LOAD_FAILED', 'RENDERER_EXITED', 'UNRESPONSIVE']);
+const diagnostics = new Set(['STARTUP_FAILED', 'MISSING_RENDERER', 'MISSING_PRELOAD', 'PRELOAD_ERROR', 'IPC_FAILED', 'LOAD_FAILED', 'RENDERER_EXITED', 'UNRESPONSIVE', 'DATABASE_INITIALIZATION_FAILED']);
 function diagnose(code: string) { console.error(`[RaizDesktop] ${code}`); }
 async function showFailure(code: string) {
   if (failing) return; failing = true;
@@ -109,8 +112,14 @@ async function initialize() {
   });
   if (!existsSync(preloadPath)) { await showFailure('MISSING_PRELOAD'); return; }
   if (!developmentUrl && !existsSync(join(rendererRoot, 'index.html'))) { await showFailure('MISSING_RENDERER'); return; }
+  try { foundation = SqliteFoundation.open({ userData: app.getPath('userData'), mode: developmentUrl ? 'development' : 'production' }); }
+  catch (error) { diagnose(error instanceof DatabaseFailure ? error.code : 'DATABASE_OPEN_FAILED'); await showFailure('DATABASE_INITIALIZATION_FAILED'); return; }
   if (!failing) await mainWindow.loadURL(developmentUrl ?? DESKTOP_URL);
 }
-app.whenReady().then(initialize).catch(() => { void showFailure('STARTUP_FAILED'); });
+// Electron scopes the lock to userData. Same profile cannot run twice, even across modes.
+if (!configurationError && !app.requestSingleInstanceLock()) { diagnose('INSTANCE_ALREADY_RUNNING'); app.quit(); }
+else app.whenReady().then(initialize).catch(() => { void showFailure('STARTUP_FAILED'); });
+app.on('second-instance', () => { mainWindow?.show(); mainWindow?.focus(); });
+app.on('before-quit', () => { try { foundation?.close(); foundation = null; } catch { diagnose('DATABASE_CLOSE_FAILED'); } });
 app.on('window-all-closed', () => { app.quit(); });
 // Windows is the target: closing the last window always ends the application.

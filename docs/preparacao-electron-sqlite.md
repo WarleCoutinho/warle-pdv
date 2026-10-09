@@ -1,4 +1,4 @@
-# Preparação para Electron + SQLite — revisão da Etapa 12A
+# Preparação para Electron + SQLite — histórico 12A/12B e fundação 12C.1
 
 Data: 09/10/2026. Repositório `WarleCoutinho/warle-pdv`, branch `codex/react-pos-base`.
 Base publicada: `b7509ee` (Etapa 11.2). Este documento substitui o planejamento preliminar da Etapa 11; o diagnóstico financeiro detalhado permanece em [Etapa 11.2](etapa-11-2-estabilizacao.md).
@@ -44,9 +44,9 @@ Falha não autoriza retry cego. Uma venda web salva com baixa pendente retorna `
 
 O contrato de crédito separa consulta pública de autenticação. A autorização deve ser mantida no backend, limitada à sessão/operador/crédito e ao prazo, e verificada novamente em `complete`. Nunca aceitar uma baixa só porque o renderer enviou customerCreditId. Reserva/consumo/restauração são internos aos comandos; não expor CRUD do ledger.
 
-## 4. Convenções do modelo preliminar
+## 4. Convenções do modelo planejado na Etapa 12A
 
-Modelo conceitual apenas, sem DDL executado. PKs textuais preservam os IDs existentes; linhas/pagamentos legados recebem identidade determinística na cópia migrada. FKs normalmente usam RESTRICT para preservar auditoria. Relações ausentes no legado permanecem NULL, nunca ligadas artificialmente a um operador, caixa ou produto atual.
+Este era o modelo conceitual da Etapa 12A; a Etapa 12C.1 implementou o DDL descrito na atualização ao final. PKs textuais preservam os IDs existentes; linhas/pagamentos legados recebem identidade determinística na cópia migrada. FKs normalmente usam RESTRICT para preservar auditoria. Relações ausentes no legado permanecem NULL, nunca ligadas artificialmente a um operador, caixa ou produto atual.
 
 Todos os valores monetários são `INTEGER` em centavos, limitados também ao intervalo de inteiros seguros do TypeScript. Quantidades são INTEGER positivas; ativo é 0/1; status e modalidade têm domínio fechado. Instantes usam TEXT ISO 8601 UTC e datas comerciais `YYYY-MM-DD` na zona America/Sao_Paulo, calculadas pelo processo responsável. Não depender da zona local do Windows para classificar o dia comercial.
 
@@ -133,3 +133,38 @@ O caminho previsto é React → aplicação → contratos → adaptador Electron
 O modelo relacional acima permanece válido, incluindo centavos INTEGER, integridade referencial, reservas/recuperação, históricos imutáveis e modalidades eletrônicas líquidas negativas quando reembolsos superam recebimentos. A migração deverá ser explícita e versionada, com validação de backups v1/v2, cópia anterior e histórico de importação. Distinguir credenciais persistentes de sessões temporárias; não confiar em autorização informada pelo renderer.
 
 A estrutura está preparada para iniciar a implementação futura, condicionada a testes de conformidade, concorrência e falhas para o novo adaptador. Banco, instalador, assinatura e atualização automática permanecem fora desta etapa. Veja [o relatório da Etapa 12B](etapa-12b-electron.md).
+
+
+## Atualização da Etapa 12C.1 — schema real, backend operacional ainda web
+
+A infraestrutura `electron/main/sqlite` usa `node:sqlite` do Electron, com banco persistente controlado por userData, WAL, synchronous FULL, foreign_keys ON e busy_timeout 1500 ms, todos verificados. O build local usa data/raiz-pdv.sqlite e desenvolvimento data/development/raiz-pdv.sqlite. Testes usam data/test dentro de perfis temporários; testes gráficos também usam perfis temporários quando exercitam o modo production. Uma única instância por userData protege cada perfil; desenvolvimento e build no mesmo perfil não abrem simultaneamente. SQLite continua responsável por bloqueios entre conexões.
+
+A migration 1 cria as 26 tabelas (incluindo schema_migrations e installation_state), índices e constraints. O digest SHA-256 do SQL efetivo, user_version, integrity_check, foreign_key_check e comparação dos objetos sqlite_schema são verificados. Migrations pendentes usam uma transação; falhas não apagam o banco. Alterações retroativas serão proibidas após publicação; alterações seguintes devem adicionar versões.
+
+### Divergências e decisões do DDL
+
+- Todas as tabelas são STRICT; números possuem CHECK de intervalo seguro. FKs usam RESTRICT, vínculos legados previstos continuam opcionais.
+- product_images usa BLOB limitado a 10 MiB com MIME permitido e hash. Referência a arquivo não foi implementada; uma estratégia de arquivos exigirá migration e controle pelo main.
+- operator_credentials separa algoritmo PBKDF2-SHA256, parâmetros JSON, salt e verifier. Não há senha clara, operador inicial ou credencial semeada no SQLite; a futura importação deverá preservar os parâmetros existentes.
+- operation_requests usa result_json para resultado completo durável, além de result_reference opcional. Estados são pending, committed e interrupted. Efeito e resultado são confirmados na mesma transação; interrupção anterior ao commit reverte ambos. Registros interrompidos existentes são diagnosticados, sem reexecução automática.
+- Vínculos de devolução/resolução com venda usam FKs compostas para impedir associação cruzada. Crédito associado à resolução tem FK diferida para permitir o ciclo de inserção na mesma transação.
+- snapshot e métodos de fechamento têm triggers que impedem UPDATE/DELETE comum. A manutenção extraordinária futura precisará tratar esses triggers dentro da operação administrativa autorizada, restaurando o mesmo schema antes de confirmar. Nenhuma exceção de manutenção existe agora.
+- Quantidade devolvida acumulada, saldo disponível considerando reservas, somatórios de pagamentos/itens, elegibilidade e autorização continuam sendo validações agregadas dos futuros comandos. O schema não deve ser interpretado como implementação desses comandos.
+- Datas UTC são ISO canônicas com milissegundos; a infraestrutura fornece data comercial por America/Sao_Paulo. A migração deverá validar/normalizar datas na cópia, preservando o significado do instante original.
+- installation_state é singleton, estados testing/ready_for_setup/production, geração positiva segura e ativação UTC obrigatória em production. Ambos os modos começam em testing; abrir o build não equivale a ativação oficial.
+
+### Preparar para uso oficial — estratégia para 12C.3
+
+Só testing poderá entrar no fluxo normal de preparação. Exigir administrador autorizado no backend, reautenticação recente, dupla confirmação e frase ZERAR RAIZ PDV. Bloquear operações concorrentes, concluir backup consistente externo com mecanismo SQLite de backup online (ou fechamento/checkpoint validado em procedimento controlado) e provar recuperabilidade antes de qualquer exclusão. Copiar somente o arquivo principal durante escritas WAL não é backup confiável.
+
+A futura transação deverá remover todo o catálogo, configuração comercial, operadores/credenciais de teste, sessões/movimentos de caixa, vendas/itens/pagamentos/cancelamentos, devoluções/reembolsos, créditos/movimentos/reservas, snapshots, requests, recovery_events e backup_imports. Preservar schema/migrations, metadados técnicos e backups externos; reiniciar sale_sequence.next_number em 1; incrementar generation e definir ready_for_setup. Tratar FKs/triggers em ordem controlada, nunca desabilitando proteção global para o renderer. Rollback deverá preservar a base anterior se algo falhar.
+
+Após commit, invalidar sessões, autorizações e rascunhos do ciclo anterior; os futuros tokens/requests devem ser vinculados à geração. A configuração inicial deverá cadastrar explicitamente o primeiro administrador e estabelecimento, sem senha padrão silenciosa no SQLite, bloquear vendas até concluir e só então ativar production. Em production, esconder/bloquear a preparação normal; eventual restauração de fábrica exige procedimento extraordinário separado.
+
+Na 12C.1 existe somente estado persistente, restrições, leitura e planejamento interno puro de transição, sem alteração do estado, exclusão, botão ou IPC administrativo. O planejador não autentica: suas evidências terão de ser produzidas pelo backend futuro, jamais confiadas ao renderer.
+
+### Pendências para 12C.2/12C.3
+
+Portar comandos completos e autenticação para o main; vincular requests à geração/operador e não incluir segredos no payload hash; assegurar idempotência com o mesmo requestId após timeout. Implementar o adaptador real somente após testes de conformidade. Depois implementar backup SQLite recuperável, importação v1/v2 e migração explícita, ativação e preparação administrativa. Até lá, todos os dados operacionais permanecem no web, sem dual-write.
+
+Fontes técnicas: [node:sqlite Node 24](https://nodejs.org/download/release/v24.21.0/docs/api/sqlite.html), [WAL SQLite](https://www.sqlite.org/wal.html), [transações SQLite](https://www.sqlite.org/lang_transaction.html), [backup online SQLite](https://www.sqlite.org/backup.html). Relatório e resultados: [Etapa 12C.1](etapa-12c-1-sqlite.md).

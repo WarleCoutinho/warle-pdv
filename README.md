@@ -105,7 +105,7 @@ Consulte [o relatório 12A](docs/etapa-12a-persistencia.md) e [o modelo desktop 
 
 ## Etapa 12B — execução desktop
 
-Requer Node.js 22.12 ou superior. Electron 44.7.0 é uma dependência de desenvolvimento; não há SQLite, instalador ou migração de dados nesta etapa.
+Requer Node.js 22.12 ou superior. Electron 44.7.0 é uma dependência de desenvolvimento. A Etapa 12B adicionou a estrutura desktop; a fundação SQLite da Etapa 12C.1 está descrita abaixo. Instalador e migração de dados continuam pendentes.
 
 ```bash
 npm install
@@ -122,3 +122,22 @@ npm run test:desktop
 No Windows, o perfil Electron fica em `%APPDATA%\Raiz PDV`. Desenvolvimento e build local usam partições distintas. Os dados do navegador são independentes: esta etapa não copia nem sincroniza vendas entre os ambientes. Ambos usam os contratos e o adaptador web da Etapa 12A, com as mesmas chaves e formatos. Sessões de operadores continuam temporárias.
 
 A janela mantém sandbox, isolamento de contexto e Node desabilitado no renderer. A única API pública é `window.raizDesktop?.getAppInfo()`, que devolve nome, versão e ambiente. Não há API de arquivos, SQL ou operações financeiras por IPC. Veja o diagnóstico, as garantias e os testes no [relatório da Etapa 12B](docs/etapa-12b-electron.md).
+
+
+## Etapa 12C.1 — fundação SQLite
+
+O main inicializa SQLite real usando `node:sqlite` do Electron 44.7.0 (Node 24.21.0, SQLite 3.53.4), sem dependência nativa externa ou recompilação. O banco contém schema, migrations e estado da instalação, mas **as operações do PDV continuam exclusivamente em `createWebRepositories()`**. Não há migração, importação de backups para SQL, limpeza, botão de reinicialização ou IPC financeiro.
+
+No Windows, o build local usa `%APPDATA%\Raiz PDV\data\raiz-pdv.sqlite`; o desenvolvimento usa `data\development\raiz-pdv.sqlite` no mesmo perfil. Testes usam somente diretórios temporários isolados. Uma segunda instância com o mesmo `userData` é bloqueada, inclusive entre modos; perfis distintos podem rodar simultaneamente.
+
+```bash
+npm run test:sqlite
+npm run typecheck
+npm run test:all
+npm run build:desktop
+npm run test:desktop
+```
+
+`test:sqlite` executa SQLite real com o binário Electron; `test:all` também inclui essa suíte. `test:desktop` verifica a inicialização do banco, isolamento, IPC, instância única e diagnóstico seguro de corrupção/inacessibilidade. A regressão web continua exigindo Vite na porta 5173.
+
+O estado SQLite começa em `testing`, geração 1. Ele não cria administrador automaticamente nem altera o login web atual. O fluxo futuro de cadastro/ativação e **Preparar para uso oficial** será implementado em etapas posteriores, com autorização e backup externo consistente obrigatório. Não apagar arquivos `.sqlite`, `-wal` ou `-shm` para reinicializar a instalação: o WAL pode conter transações confirmadas ainda não incorporadas ao arquivo principal. Veja o [relatório 12C.1](docs/etapa-12c-1-sqlite.md).

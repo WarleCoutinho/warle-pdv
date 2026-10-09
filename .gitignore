@@ -15,3 +15,9 @@ desktop.ini
 # Desktop compilado e evidencias locais
 dist-electron/
 outputs/etapa-12b/
+
+# Private databases and generated SQLite test evidence
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+outputs/etapa-12c-1/

@@ -1,5 +1,5 @@
 const { _electron: electron } = require('playwright');
-const { mkdtempSync, mkdirSync, copyFileSync, writeFileSync } = require('node:fs');
+const { mkdtempSync, mkdirSync, copyFileSync, writeFileSync, cpSync } = require('node:fs');
 const { tmpdir } = require('node:os');
 const { join, resolve } = require('node:path');
 const assert = require('node:assert/strict');
@@ -8,6 +8,7 @@ const assert = require('node:assert/strict');
     const bundle = mkdtempSync(join(tmpdir(), 'raiz startup 12b '));
     mkdirSync(join(bundle, 'dist-electron', 'main'), { recursive: true });
     for (const file of ['index.cjs','security.cjs']) copyFileSync(resolve('dist-electron','main',file), join(bundle,'dist-electron','main',file));
+    cpSync(resolve('dist-electron','main','sqlite'),join(bundle,'dist-electron','main','sqlite'),{recursive:true});
     if (code !== 'MISSING_PRELOAD') { mkdirSync(join(bundle,'dist-electron','preload'), { recursive: true }); copyFileSync(resolve('dist-electron','preload','index.cjs'), join(bundle,'dist-electron','preload','index.cjs')); }
     if (['PRELOAD_ERROR','IPC_FAILED','LOAD_FAILED'].includes(code)) {
       mkdirSync(join(bundle,'dist'), { recursive: true });

@@ -2,6 +2,7 @@ const { _electron: electron, chromium } = require('playwright');
 const assert = require('node:assert/strict');
 const { mkdtempSync, mkdirSync, readFileSync, existsSync, writeFileSync } = require('node:fs');
 const { tmpdir } = require('node:os');
+const { DatabaseSync } = require('node:sqlite');
 const { resolve, join } = require('node:path');
 const root = resolve(__dirname, '..');
 const version = require('../package.json').version;
@@ -27,6 +28,13 @@ const wait = (ms) => new Promise((done) => setTimeout(done, ms));
       const page = await desktop.firstWindow(); page.setDefaultTimeout(15000);
       const errors = []; page.on('pageerror', (error) => errors.push(error.message));
       await page.getByRole('heading', { name: 'Entrar no Raiz PDV' }).waitFor();
+      const sqlitePath = join(profile,'data',...(mode === 'development' ? ['development'] : []),'raiz-pdv.sqlite');
+      assert.ok(existsSync(sqlitePath));
+      const sqliteBefore = new DatabaseSync(sqlitePath,{readOnly:true});
+      const installationBefore = sqliteBefore.prepare('SELECT * FROM installation_state').get();
+      assert.equal(installationBefore.status,'testing');
+      assert.equal(sqliteBefore.prepare('SELECT count(*) AS count FROM sales').get().count,0);
+      sqliteBefore.close();
       const info = await page.evaluate(() => window.raizDesktop.getAppInfo());
       assert.deepEqual(info, { name: 'Raiz PDV', version, environment: 'desktop' });
       const isolation = await page.evaluate(() => ({ require: typeof require, process: typeof process, buffer: typeof Buffer, api: Object.keys(window.raizDesktop), secure: isSecureContext, locks: !!navigator.locks, crypto: !!crypto.subtle }));
@@ -50,7 +58,7 @@ const wait = (ms) => new Promise((done) => setTimeout(done, ms));
       assert.equal(unauthorized, 'rejected');
       // Test-only sandboxed preload attacks explicit/unknown IPC from an unauthorized document.
       const attackPath = join(profile, 'attack-preload.cjs');
-      writeFileSync(attackPath, `const { contextBridge, ipcRenderer } = require('electron'); contextBridge.exposeInMainWorld('probe', async () => { const denied = await ipcRenderer.invoke('raiz:desktop:app-info', { arbitrary: true }); let unknown = false; try { await ipcRenderer.invoke('raiz:unknown'); } catch { unknown = true; } return { code: denied.error.code, unknown }; });`);
+      writeFileSync(attackPath, `const { contextBridge, ipcRenderer } = require('electron'); contextBridge.exposeInMainWorld('probe', async () => { const denied = await ipcRenderer.invoke('raiz:desktop:app-info', { arbitrary: true }); let unknown = false; try { await ipcRenderer.invoke('raiz:sqlite:execute'); } catch { unknown = true; } return { code: denied.error.code, unknown }; });`);
       const ipc = await desktop.evaluate(async ({ BrowserWindow }, attackPath) => {
         const owner = BrowserWindow.getAllWindows()[0];
         const attacker = new BrowserWindow({ show: false, webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false, preload: attackPath } });
@@ -58,6 +66,10 @@ const wait = (ms) => new Promise((done) => setTimeout(done, ms));
         finally { attacker.destroy(); }
       }, attackPath);
       assert.deepEqual(ipc, { code: 'UNAUTHORIZED', unknown: true });
+      const sqliteAfterAttack = new DatabaseSync(sqlitePath,{readOnly:true});
+      assert.deepEqual(sqliteAfterAttack.prepare('SELECT * FROM installation_state').get(),installationBefore);
+      assert.equal(sqliteAfterAttack.prepare('SELECT count(*) AS count FROM operation_requests').get().count,0);
+      sqliteAfterAttack.close();
       await page.getByRole('textbox', { name: 'Operador', exact: true }).fill('Admin');
       await page.getByLabel('Senha', { exact: true }).fill('123456');
       await page.getByRole('button', { name: 'Entrar', exact: true }).click();
@@ -102,6 +114,10 @@ const wait = (ms) => new Promise((done) => setTimeout(done, ms));
       assert.equal(await reopened.evaluate(() => JSON.parse(localStorage.getItem('raiz-pdv:completed-sales')).length), 1);
       assert.equal(await reopened.evaluate(() => sessionStorage.getItem('raiz-pdv:operator-session')), null);
       await desktop.close(); desktop = null;
+      const sqliteReopened = new DatabaseSync(sqlitePath,{readOnly:true});
+      assert.deepEqual(sqliteReopened.prepare('SELECT * FROM installation_state').get(),installationBefore);
+      assert.equal(sqliteReopened.prepare('SELECT count(*) AS count FROM sales').get().count,0,'A venda continua somente no backend web.');
+      sqliteReopened.close();
       console.log('PASS Electron ' + mode + ': React, preload/IPC, sandbox/isolamento, políticas de navegação/rede, venda/backup, diagnóstico de crash e persistência após reinício com perfil isolado.');
     } finally { if (desktop) await desktop.close(); }
   }

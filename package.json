@@ -9,15 +9,16 @@
     "preview": "vite preview",
     "test": "npm run build:electron && node --test --test-concurrency=1 tests/*.test.mjs",
     "test:ui": "node tests/run-ui.cjs",
-    "test:all": "npm test && npm run test:ui && npm run build",
+    "test:all": "npm test && npm run test:sqlite && npm run test:ui && npm run build",
     "dev:desktop": "node scripts/dev-desktop.mjs",
     "build:electron": "tsc -p tsconfig.electron.json",
     "build:renderer": "tsc -b && vite build",
     "build:desktop": "npm run build && npm run build:electron",
     "typecheck": "tsc -b && tsc -p tsconfig.electron.json --noEmit",
     "start:desktop": "electron .",
-    "test:desktop": "npm run build:desktop && node tests/electron-smoke.cjs && node tests/desktop-launcher.cjs && node tests/electron-startup.cjs",
-    "test:desktop:production": "npm run build:desktop && node tests/electron-smoke.cjs --production-only"
+    "test:desktop": "npm run build:desktop && node tests/electron-smoke.cjs && node tests/desktop-launcher.cjs && node tests/electron-startup.cjs && node tests/sqlite-desktop.cjs",
+    "test:desktop:production": "npm run build:desktop && node tests/electron-smoke.cjs --production-only",
+    "test:sqlite": "npm run build:electron && node scripts/test-sqlite.mjs"
   },
   "dependencies": {
     "react": "^19.3.0",
