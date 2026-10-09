@@ -6,14 +6,16 @@ const { tmpdir } = require('node:os');
 const { join, resolve } = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { SqliteFoundation, canonicalJson } = require('../dist-electron/main/sqlite/database.cjs');
-const { MIGRATIONS, digest } = require('../dist-electron/main/sqlite/migrations.cjs');
+const { MIGRATIONS: ALL_MIGRATIONS, digest } = require('../dist-electron/main/sqlite/migrations.cjs');
+// Preserve every 12C.1 regression against its published schema; upgrades are tested separately.
+const MIGRATIONS = ALL_MIGRATIONS.slice(0,1);
 const { databasePath } = require('../dist-electron/main/sqlite/profile.cjs');
 const { planInstallationTransition, commercialDate } = require('../dist-electron/main/sqlite/installation.cjs');
 const now = '2026-10-09T12:00:00.000Z';
 const hash = 'a'.repeat(64);
 function profile() { return mkdtempSync(join(tmpdir(),'raiz sqlite 12c1 ')); }
 function fixture(t,options={}) {
-  const userData=profile(); const configuration={userData,mode:'test',...options};
+  const userData=profile(); const configuration={userData,mode:'test',migrations:MIGRATIONS,...options};
   const db=SqliteFoundation.open(configuration); t.after(()=>db.close());
   return {db,userData,configuration,path:databasePath(userData,configuration.mode)};
 }
@@ -23,7 +25,7 @@ function category(ctx,id='category') { ctx.run('INSERT INTO categories(id,name,n
 function sale(ctx,id='historical-sale',number=1) { ctx.run("INSERT INTO sales(id,number,occurred_at,status,total_cents) VALUES(?,?,?,'completed',1000)",id,number,now); }
 function line(ctx,id='line-preserved',saleId='historical-sale',quantity=2) { ctx.run('INSERT INTO sale_items(sale_id,line_id,position,product_id,product_name_snapshot,unit_price_cents,quantity,subtotal_cents) VALUES(?,?,0,?,?,500,?,?)',saleId,id,'old-product','Historical product',quantity,500*quantity); }
 function credit(ctx,id='credit') { ctx.run("INSERT INTO customer_credits(id,receipt_number,original_sale_id,original_sale_number,issued_at,original_cents,balance_cents,status,authorization_verifier) VALUES(?,?,'historical-sale',1,?,1000,1000,'available',?)",id,id,now,hash); }
-function reopen(configuration) { return SqliteFoundation.open(configuration); }
+function reopen(configuration) { return SqliteFoundation.open({migrations:MIGRATIONS,...configuration}); }
 function native(path,work) { const db=new DatabaseSync(path); try{return work(db);}finally{db.close();} }
 
 // These fixtures never address Electron's actual appData or any operational browser storage.
@@ -170,7 +172,7 @@ test('Request interrompido permanece diagnosticável e não é executado automat
 });
 test('Interrupção abrupta antes/depois do commit mantém atomicidade e resultado durável',()=>{
  const userData=profile();const modulePath=resolve('dist-electron/main/sqlite/database.cjs');
- const run=committed=>spawnSync(process.execPath,['-e',`const {SqliteFoundation}=require(${JSON.stringify(modulePath)}); const db=SqliteFoundation.open({userData:${JSON.stringify(userData)},mode:'test'}); db.executeRequest({requestId:'crash',kind:'test.category',payload:{}},ctx=>{ctx.run("INSERT INTO categories VALUES('crash','Crash','crash')"); ${committed?'return {saved:true};':'process.exit(23);'} }); process.exit(24);`],{env:{...process.env,ELECTRON_RUN_AS_NODE:'1'},windowsHide:true,encoding:'utf8'});
+ const run=committed=>spawnSync(process.execPath,['-e',`const {SqliteFoundation}=require(${JSON.stringify(modulePath)}); const db=SqliteFoundation.open({userData:${JSON.stringify(userData)},mode:'test',migrations:require(${JSON.stringify(resolve('dist-electron/main/sqlite/migrations.cjs'))}).MIGRATIONS.slice(0,1)}); db.executeRequest({requestId:'crash',kind:'test.category',payload:{}},ctx=>{ctx.run("INSERT INTO categories VALUES('crash','Crash','crash')"); ${committed?'return {saved:true};':'process.exit(23);'} }); process.exit(24);`],{env:{...process.env,ELECTRON_RUN_AS_NODE:'1'},windowsHide:true,encoding:'utf8'});
  assert.equal(run(false).status,23);let db=reopen({userData,mode:'test'});assert.equal(value(db,'SELECT count(*) FROM categories'),0);assert.equal(value(db,'SELECT count(*) FROM operation_requests'),0);db.close();
  assert.equal(run(true).status,24);db=reopen({userData,mode:'test'});try{assert.deepEqual(db.executeRequest({requestId:'crash',kind:'test.category',payload:{}},()=>{throw Error('REPEATED');}),{saved:true});assert.equal(value(db,'SELECT count(*) FROM categories'),1);}finally{db.close();}
 });

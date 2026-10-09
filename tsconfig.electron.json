@@ -1,9 +1,21 @@
 {
   "compilerOptions": {
-    "target": "ES2022", "module": "NodeNext", "moduleResolution": "NodeNext",
-    "rootDir": "electron", "outDir": "dist-electron", "types": ["node"],
-    "strict": true, "noUnusedLocals": true, "noUnusedParameters": true,
-    "skipLibCheck": true, "noEmitOnError": true, "sourceMap": false
+    "target": "ES2022",
+    "module": "Preserve",
+    "moduleResolution": "Bundler",
+    "rootDir": ".",
+    "types": [
+      "node"
+    ],
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "skipLibCheck": true,
+    "noEmitOnError": true,
+    "sourceMap": false,
+    "noEmit": true
   },
-  "include": ["electron/**/*.cts"]
+  "include": [
+    "electron/**/*.cts"
+  ]
 }

@@ -40,7 +40,7 @@ export function SaleFinancialPanel({ sale, settings }: { sale: Sale; settings: S
     setSaving(true); setError('');
     try {
       const result = await application.settle(sale, { amounts, statuses });
-      setFinancial({ data: result.data, source: loadedFinancial }); setReceipts(result.issuedCredits.map(({ credit, authCode }) => ({ receiptNumber: credit.receiptNumber, originalSaleNumber: credit.originalSaleNumber, issuedAt: credit.issuedAt, amountInCents: credit.originalAmountInCents, authCode })));
+      setFinancial({ data: result.data, source: loadedFinancial }); setReceipts(result.issuedCredits.flatMap(({ credit, authCode }) => authCode ? [{ receiptNumber: credit.receiptNumber, originalSaleNumber: credit.originalSaleNumber, issuedAt: credit.issuedAt, amountInCents: credit.originalAmountInCents, authCode }] : []));
       setShowSettlement(false);
     } catch (failure) { setError(failure instanceof Error ? failure.message : 'Não foi possível registrar a resolução financeira.'); } finally { busy.current = false; setSaving(false); }
   }

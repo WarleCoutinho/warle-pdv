@@ -6,10 +6,10 @@ import { createServer } from 'vite';
 const require = createRequire(import.meta.url);
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const executable = require('electron');
-const tsc = resolve(dirname(require.resolve('typescript/package.json')), 'bin', 'tsc');
+const compilerScript = resolve(root, 'scripts', 'build-electron.mjs');
 let server; let electron; let stopping = false;
 const runCompile = () => new Promise((resolveResult, reject) => {
-  const compiler = spawn(process.execPath, [tsc, '-p', 'tsconfig.electron.json'], { cwd: root, stdio: 'inherit', windowsHide: true });
+  const compiler = spawn(process.execPath, [compilerScript], { cwd: root, stdio: 'inherit', windowsHide: true });
   compiler.on('error', reject); compiler.on('exit', (code) => code === 0 ? resolveResult() : reject(new Error('Falha ao compilar main/preload.')));
 });
 async function stop(code = 0) {

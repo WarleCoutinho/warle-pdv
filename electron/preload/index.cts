@@ -3,7 +3,15 @@ import type { AppInfoChannel, AppInfoReply, DesktopAppInfo, RaizDesktopApi } fro
 // Sandboxed preload can require Electron, but cannot require local runtime modules.
 // This literal is checked against the shared channel type and compiles into one CJS file.
 const channel: AppInfoChannel = 'raiz:desktop:app-info';
+import { operationNames } from '../shared/operational.js';
+import type { DomainApi, Reply } from '../shared/operational.js';
+const pdv = Object.fromEntries(operationNames.map(name=>[name, async (input:unknown)=>{
+ const reply:Reply<unknown>=await ipcRenderer.invoke(`raiz:pdv:${name}`,input);
+ if(!reply||reply.ok!==true){const code=reply&&reply.ok===false?reply.error.code:'INVALID_REPLY';throw new Error(/^[A-Z_]{1,64}$/.test(code)?code:'INVALID_REPLY');}
+ return reply.value;
+}])) as DomainApi;
 const api: RaizDesktopApi = {
+  pdv:Object.freeze(pdv),
   async getAppInfo() {
     try {
       const reply: AppInfoReply = await ipcRenderer.invoke(channel);

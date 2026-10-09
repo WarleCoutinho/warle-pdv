@@ -4,7 +4,8 @@ export type CustomerCreditStatus = 'available' | 'partial' | 'redeemed' | 'cance
 export type CustomerCredit = {
   id: string;
   receiptNumber: string;
-  authCodeHash: string;
+  /** Web legacy verifier; Electron public DTOs omit this field. */
+  authCodeHash?: string;
   originalSaleId: string;
   originalSaleNumber: number;
   issuedAt: string;

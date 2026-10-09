@@ -161,3 +161,8 @@ A fronteira Promise, a composição/injeção, os comandos completos, o domínio
 Antes de usar SQLite, finalizar transporte seguro, DTOs/erros/idempotência, sessão temporária e estratégia de migração/cópia externa; executar os mesmos cenários com transações reais. Não há evidência de testes de desktop nesta etapa nem garantia de que a criação de banco pode pular essas decisões.
 
 A 12A termina com o navegador usando o adaptador web e dados compatíveis. Não foi iniciada a 12B/12C, nem realizado commit ou push. Próxima etapa depende de autorização explícita.
+
+
+## Evolução controlada das portas na 12C.2
+
+O [backend Electron](etapa-12c-2-backend-sqlite.md) implementa as portas financeiras por IPC de domínio. CommandOptions/requestId é opcional para preservar o web; o Electron mantém intenção durável e mesmo ID após timeout/restart. Operadores podem oferecer reauthenticate; o transporte nativo usa hasPassword e créditos públicos sem hash. Emissões distinguem código web de comprovante impresso no main. requiresAuthenticatedReads permite apresentar login sem consultas privadas antes de autenticar. operations é capacidade opcional para conferir/reconhecer/descarte de intenções sem efeitos; não limpa dados comerciais. Portas nativas de backup/limpeza declaram indisponibilidade até 12C.3, sem fallback ao armazenamento web. A composição default não foi alterada.

@@ -1,11 +1,11 @@
-# Preparação para Electron + SQLite — histórico 12A/12B e fundação 12C.1
+# Preparação para Electron + SQLite — histórico 12A/12B, fundação 12C.1 e backend 12C.2
 
 Data: 09/10/2026. Repositório `WarleCoutinho/warle-pdv`, branch `codex/react-pos-base`.
 Base publicada: `b7509ee` (Etapa 11.2). Este documento substitui o planejamento preliminar da Etapa 11; o diagnóstico financeiro detalhado permanece em [Etapa 11.2](etapa-11-2-estabilizacao.md).
 
 ## 1. Estado na conclusão da Etapa 12A e fronteiras
 
-Na conclusão da Etapa 12A, o sistema funcionava exclusivamente no navegador. A estrutura Electron foi adicionada na Etapa 12B; SQLite e migração continuam planejados para uma etapa posterior.
+Na conclusão da Etapa 12A, o sistema funcionava exclusivamente no navegador. A estrutura Electron foi adicionada na Etapa 12B; A fundação SQLite chegou na 12C.1 e o backend operacional na 12C.2; migração/ativação continuam planejadas para a 12C.3.
 
 A Etapa 12A implementou `React → aplicação → contratos Promise → adaptador web`. `createWebRepositories()` compõe os serviços estabilizados; `createPdvApplication(repositories)` permite injetar outra implementação. `ApplicationContext` distribui a aplicação; apenas o ponto de composição seleciona o web. As telas não importam os serviços de armazenamento. A seleção futura deve ocorrer nesse ponto, usando um único backend por execução, sem dual-write.
 
@@ -168,3 +168,14 @@ Na 12C.1 existe somente estado persistente, restrições, leitura e planejamento
 Portar comandos completos e autenticação para o main; vincular requests à geração/operador e não incluir segredos no payload hash; assegurar idempotência com o mesmo requestId após timeout. Implementar o adaptador real somente após testes de conformidade. Depois implementar backup SQLite recuperável, importação v1/v2 e migração explícita, ativação e preparação administrativa. Até lá, todos os dados operacionais permanecem no web, sem dual-write.
 
 Fontes técnicas: [node:sqlite Node 24](https://nodejs.org/download/release/v24.21.0/docs/api/sqlite.html), [WAL SQLite](https://www.sqlite.org/wal.html), [transações SQLite](https://www.sqlite.org/lang_transaction.html), [backup online SQLite](https://www.sqlite.org/backup.html). Relatório e resultados: [Etapa 12C.1](etapa-12c-1-sqlite.md).
+
+
+## Backend operacional validável — atualização 12C.2
+
+A [12C.2](etapa-12c-2-backend-sqlite.md) adiciona o adaptador Electron e comandos financeiros reais no main. A composição operacional permanece web; não há ativação, migração, dual-write ou limpeza automática. O estágio anterior deste documento é histórico; a API deixou de ser limitada a getAppInfo, mas não permite SQL/filesystem genérico nem alterar instalação.
+
+Migration 1 permanece publicada/imutável. Migration 2 acrescenta autoria/generation em requests e vendas, snapshots de autoria, motivo de devolução, autoria de reembolsos/movimentos/fechamento e ciphertext para impressão. Dinheiro continua INTEGER seguro em centavos; eletrônico líquido pode ser negativo. Sessões são internas ao main e vinculadas à geração. Todos os efeitos financeiros e resultados idempotentes confirmam juntos com BEGIN IMMEDIATE.
+
+Requests preparados guardam somente hash de intenção, sem efeito financeiro/segredo. Prepare/execute/read/acknowledge/discardPrepared permitem recuperar resultados perdidos sem gerar novo ID. Troca de payload com resultado incerto bloqueia nova tentativa até conferência explícita. Descarte não exclui registros e só aceita intenção preparada sem reserva ou confirmação.
+
+A migração 12C.3 deve preservar backups web v1/v2 e formatos históricos, principalmente lineId ausente, autoria opcional, recebimentos cancelados e snapshots sem campos v2. O mapper SQL moderno não substitui o importador/mapeamento de fechamento legado. Importar verifier de crédito não permite inventar código secreto de reimpressão; DPAPI não substitui backup portátil. Preparação oficial, geração nova, reinicialização autorizada de dados fictícios e sequência, backup consistente externo e ativação continuam exclusivamente planejados.

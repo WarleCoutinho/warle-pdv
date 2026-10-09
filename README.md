@@ -121,12 +121,12 @@ npm run test:desktop
 
 No Windows, o perfil Electron fica em `%APPDATA%\Raiz PDV`. Desenvolvimento e build local usam partições distintas. Os dados do navegador são independentes: esta etapa não copia nem sincroniza vendas entre os ambientes. Ambos usam os contratos e o adaptador web da Etapa 12A, com as mesmas chaves e formatos. Sessões de operadores continuam temporárias.
 
-A janela mantém sandbox, isolamento de contexto e Node desabilitado no renderer. A única API pública é `window.raizDesktop?.getAppInfo()`, que devolve nome, versão e ambiente. Não há API de arquivos, SQL ou operações financeiras por IPC. Veja o diagnóstico, as garantias e os testes no [relatório da Etapa 12B](docs/etapa-12b-electron.md).
+A janela mantém sandbox, isolamento de contexto e Node desabilitado no renderer. Na entrega da 12B, a API pública era `window.raizDesktop?.getAppInfo()`, com nome, versão e ambiente. A ampliação por comandos de domínio está descrita na 12C.2 abaixo; SQL e filesystem genéricos permanecem proibidos. Veja o diagnóstico, as garantias e os testes no [relatório da Etapa 12B](docs/etapa-12b-electron.md).
 
 
 ## Etapa 12C.1 — fundação SQLite
 
-O main inicializa SQLite real usando `node:sqlite` do Electron 44.7.0 (Node 24.21.0, SQLite 3.53.4), sem dependência nativa externa ou recompilação. O banco contém schema, migrations e estado da instalação, mas **as operações do PDV continuam exclusivamente em `createWebRepositories()`**. Não há migração, importação de backups para SQL, limpeza, botão de reinicialização ou IPC financeiro.
+O main inicializa SQLite real usando `node:sqlite` do Electron 44.7.0 (Node 24.21.0, SQLite 3.53.4), sem dependência nativa externa ou recompilação. O banco contém schema, migrations e estado da instalação, mas **as operações do PDV continuam exclusivamente em `createWebRepositories()`**. A 12C.1 foi entregue sem migração, importação de backups para SQL, limpeza, botão de reinicialização ou IPC financeiro. A 12C.2 acrescenta comandos operacionais, mantendo a composição web.
 
 No Windows, o build local usa `%APPDATA%\Raiz PDV\data\raiz-pdv.sqlite`; o desenvolvimento usa `data\development\raiz-pdv.sqlite` no mesmo perfil. Testes usam somente diretórios temporários isolados. Uma segunda instância com o mesmo `userData` é bloqueada, inclusive entre modos; perfis distintos podem rodar simultaneamente.
 
@@ -141,3 +141,12 @@ npm run test:desktop
 `test:sqlite` executa SQLite real com o binário Electron; `test:all` também inclui essa suíte. `test:desktop` verifica a inicialização do banco, isolamento, IPC, instância única e diagnóstico seguro de corrupção/inacessibilidade. A regressão web continua exigindo Vite na porta 5173.
 
 O estado SQLite começa em `testing`, geração 1. Ele não cria administrador automaticamente nem altera o login web atual. O fluxo futuro de cadastro/ativação e **Preparar para uso oficial** será implementado em etapas posteriores, com autorização e backup externo consistente obrigatório. Não apagar arquivos `.sqlite`, `-wal` ou `-shm` para reinicializar a instalação: o WAL pode conter transações confirmadas ainda não incorporadas ao arquivo principal. Veja o [relatório 12C.1](docs/etapa-12c-1-sqlite.md).
+
+
+## Etapa 12C.2 — backend operacional SQLite, sem ativação automática
+
+O backend agora implementa autenticação, catálogo/configuração, vendas, caixa, devoluções, reembolsos, créditos e recuperação por comandos transacionais, com autoria, geração e idempotência durável. A API `window.raizDesktop.pdv` contém somente operações explícitas e validadas; não oferece SQL ou filesystem genéricos. Verificadores e códigos não são devolvidos ao renderer operacional. Comprovantes de crédito usam impressão controlada no main e proteção DPAPI no Windows.
+
+**O aplicativo normal continua usando o adaptador web.** O transporte SQLite exige validação manual não empacotada, perfil de teste explícito e `--raiz-sqlite-validation`; esse flag não seleciona o adaptador nem ativa a instalação. Não existe administrador nativo criado automaticamente. Cadastro inicial/ativação/importação oficial pertencem à 12C.3.
+
+`npm run test:sqlite` inclui conformidade web/SQLite, concorrência com conexões reais, falhas/restart/timeout e autorização. `npm run test:desktop` também monta uma composição Electron explícita apenas numa cópia temporária, executa venda pela interface e verifica o comprovante isolado com DPAPI/PDF. Veja os comandos, contratos, limites e requisitos de migração no [relatório 12C.2](docs/etapa-12c-2-backend-sqlite.md).

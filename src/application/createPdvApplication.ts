@@ -8,13 +8,16 @@ export function createPdvApplication(repositories: PdvRepositories) {
     try { return { cash: await repositories.cash.read(), cashError: null as string | null }; }
     catch (failure) { return { cash: { sessions: [], movements: [] }, cashError: failure instanceof Error ? failure.message : 'Não foi possível carregar o caixa.' }; }
   };
+  const guest = { products: [], settings: {storeName:'Raiz PDV',address:'',phone:'',receiptFooter:'',operators:[]}, cash:{sessions:[],movements:[]}, cashError:null, operator:null };
   return {
     ...repositories,
     bootstrap: async () => {
+      if(repositories.requiresAuthenticatedReads && !await repositories.operators.current())return structuredClone(guest);
       const [products, settings, cashContext, operator] = await Promise.all([repositories.products.list(), repositories.settings.load(), readCashContext(), repositories.operators.current()]);
       return { products, settings, ...cashContext, operator };
     },
     context: async () => {
+      if(repositories.requiresAuthenticatedReads && !await repositories.operators.current())return structuredClone(guest);
       const [settings, cashContext, operator] = await Promise.all([repositories.settings.load(), readCashContext(), repositories.operators.current()]);
       return { settings, ...cashContext, operator };
     },

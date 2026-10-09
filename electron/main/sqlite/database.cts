@@ -129,17 +129,21 @@ export class SqliteFoundation {
       throw failure;
     } finally { active=false; this.#running=false; }
   }
-  executeRequest(request: RequestInput, work: (context: TransactionContext) => JsonValue): JsonValue {
+  executeRequest(request: RequestInput, work: (context: TransactionContext) => JsonValue, authorize?: (context: TransactionContext) => void): JsonValue {
     if (!request.requestId || request.requestId.length>200 || !request.kind || request.kind.length>100) throw new DatabaseFailure('INVALID_DATABASE_INPUT');
     const hash = digest(canonicalJson(request.payload));
     return this.transaction(context=>{
+      authorize?.(context);
       const previous = context.get('SELECT kind,payload_hash,status,result_json FROM operation_requests WHERE request_id=?',request.requestId);
       if (previous) {
         if (previous.kind!==request.kind || previous.payload_hash!==hash) throw new DatabaseFailure('REQUEST_CONFLICT');
+        if (previous.status==='pending' && context.get('SELECT result_reference FROM operation_requests WHERE request_id=?',request.requestId)?.result_reference==='prepared') { /* Intent journal has no financial effects. */ }
+        else {
         if (previous.status!=='committed') throw new DatabaseFailure('REQUEST_INTERRUPTED');
         try { return JSON.parse(String(previous.result_json)) as JsonValue; } catch { throw new DatabaseFailure('DATABASE_CORRUPT'); }
+        }
       }
-      context.run("INSERT INTO operation_requests(request_id,kind,status,payload_hash,created_at) VALUES(?,?,'pending',?,?)",request.requestId,request.kind,hash,new Date().toISOString());
+      if (!previous) context.run("INSERT INTO operation_requests(request_id,kind,status,payload_hash,created_at) VALUES(?,?,'pending',?,?)",request.requestId,request.kind,hash,new Date().toISOString());
       const result = work(context);
       if (result && typeof (result as {then?:unknown}).then === 'function') { void Promise.resolve(result).catch(()=>{}); throw new DatabaseFailure('TRANSACTION_ASYNC_FORBIDDEN'); }
       const serialized = canonicalJson(result);

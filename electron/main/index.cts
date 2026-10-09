@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, protocol, session } from 'electron';
+import { app, BrowserWindow, ipcMain, protocol, session, safeStorage } from 'electron';
 import { existsSync, mkdirSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { join, extname } from 'node:path';
@@ -6,6 +6,11 @@ import { SqliteFoundation } from './sqlite/database.cjs';
 import { DatabaseFailure } from './sqlite/errors.cjs';
 import type { AppInfoChannel, AppInfoReply } from '../shared/contracts.cjs';
 import { authorizeAppInfo, contentSecurityPolicy, DESKTOP_URL, ERROR_URL, isAllowedBackupDownload, isAllowedRequest, isTrustedDocument, resolveAssetPath, validateDevelopmentUrl, validateProfileArgument } from './security.cjs';
+import { OperationalBackend } from './sqlite/backend.cjs';
+import { handleOperation } from './ipc.cjs';
+import { operationNames } from '../shared/operational.js';
+const sqliteValidation = !app.isPackaged && process.argv.includes('--raiz-sqlite-validation') && process.argv.some(arg=>arg.startsWith('--raiz-profile='));
+let backend:OperationalBackend|null=null;
 const APP_INFO_CHANNEL: AppInfoChannel = 'raiz:desktop:app-info';
 app.setName('Raiz PDV');
 app.enableSandbox();
@@ -76,6 +81,7 @@ async function initialize() {
     webPreferences: { preload: preloadPath, contextIsolation: true, nodeIntegration: false, sandbox: true, webSecurity: true, allowRunningInsecureContent: false, webviewTag: false, session: desktopSession } });
   mainWindow.removeMenu();
   const contents = mainWindow.webContents;
+  const contentsId=contents.id;
   mainWindow.on('page-title-updated', (event) => { event.preventDefault(); });
   contents.setWindowOpenHandler(() => { diagnose('WINDOW_BLOCKED'); return { action: 'deny' }; });
   contents.on('will-navigate', (event, url) => { if (!isTrustedDocument(url, developmentUrl)) { event.preventDefault(); diagnose('NAVIGATION_BLOCKED'); } });
@@ -114,6 +120,10 @@ async function initialize() {
   if (!developmentUrl && !existsSync(join(rendererRoot, 'index.html'))) { await showFailure('MISSING_RENDERER'); return; }
   try { foundation = SqliteFoundation.open({ userData: app.getPath('userData'), mode: developmentUrl ? 'development' : 'production' }); }
   catch (error) { diagnose(error instanceof DatabaseFailure ? error.code : 'DATABASE_OPEN_FAILED'); await showFailure('DATABASE_INITIALIZATION_FAILED'); return; }
+  backend=new OperationalBackend(foundation,Date.now,{seal:code=>{if(!safeStorage.isEncryptionAvailable()||(process.platform==='linux'&&safeStorage.getSelectedStorageBackend()==='basic_text'))throw new DatabaseFailure('UNSUPPORTED_OPERATION');return safeStorage.encryptString(code);},open:bytes=>{if(!safeStorage.isEncryptionAvailable()||(process.platform==='linux'&&safeStorage.getSelectedStorageBackend()==='basic_text'))throw new DatabaseFailure('UNSUPPORTED_OPERATION');return safeStorage.decryptString(Buffer.from(bytes));}});
+  for(const name of operationNames)ipcMain.handle(`raiz:pdv:${name}`,(event,...args:unknown[])=>handleOperation(backend!,event,name,args,mainWindow?.webContents===event.sender,developmentUrl,sqliteValidation));
+  contents.on('destroyed',()=>backend?.disconnect(contentsId));
+  contents.on('did-start-navigation',(_event,_url,_inPlace,isMainFrame)=>{if(isMainFrame)backend?.disconnect(contentsId);});
   if (!failing) await mainWindow.loadURL(developmentUrl ?? DESKTOP_URL);
 }
 // Electron scopes the lock to userData. Same profile cannot run twice, even across modes.
