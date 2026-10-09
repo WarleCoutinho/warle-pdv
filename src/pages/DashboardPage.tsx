@@ -4,10 +4,12 @@ import { PaymentBreakdown } from '../components/PaymentBreakdown';
 import { StatCard } from '../components/StatCard';
 import type { AppPage } from '../types/navigation';
 import { formatMoney } from '../utils/money';
-import { filterSalesByPeriod, getPaymentTotals, getSalesMetrics, sortSalesMostRecent } from '../utils/salesAnalytics';
+import { filterSalesByPeriod, filterRecordedSalesByPeriod, getPaymentTotals, getFinancialPeriodSummary, getPeriodReceivedSummary, getSalesMetrics, sortSalesMostRecent } from '../utils/salesAnalytics';
 import { paymentMethodLabels } from '../types/payment';
 import { usePersistedSales } from '../hooks/usePersistedSales';
 import type { CashData } from '../types/cash';
+import { getOpenCashSession } from '../services/cashStorage';
+import { cashLabel } from '../utils/cashDay';
 import { getCashSummary } from '../utils/cash';
 
 type DashboardPageProps = {
@@ -19,15 +21,18 @@ const dateFormatter = new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: 
 const timeFormatter = new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
 
 export function DashboardPage({ onNavigate, cashData }: DashboardPageProps) {
-  const { sales, loading, error } = usePersistedSales();
-  const referenceDate = useMemo(() => new Date(), []);
+  const { sales, financial, referenceDate, loading, error } = usePersistedSales();
   const todaySales = useMemo(() => filterSalesByPeriod(sales, 'today', referenceDate), [sales, referenceDate]);
-  const todayMetrics = useMemo(() => getSalesMetrics(todaySales), [todaySales]);
-  const allMetrics = useMemo(() => getSalesMetrics(sales), [sales]);
+  const todayMetrics = useMemo(() => getSalesMetrics(todaySales, financial), [todaySales, financial]);
+  const allMetrics = useMemo(() => getSalesMetrics(sales, financial), [sales, financial]);
   const recentSales = useMemo(() => sortSalesMostRecent(sales).slice(0, 5), [sales]);
-  const paymentTotals = useMemo(() => getPaymentTotals(todaySales), [todaySales]);
-  const openCash = cashData.sessions.find((session) => session.status === 'open');
-  const cashSummary = openCash ? getCashSummary(openCash, cashData.movements, sales) : null;
+  const paymentTotals = useMemo(() => getPaymentTotals(filterRecordedSalesByPeriod(sales, 'today', referenceDate), true), [sales, referenceDate]);
+  const openCash = getOpenCashSession(cashData);
+  const cashSummary = !error && openCash ? getCashSummary(openCash, cashData.movements, sales) : null;
+
+  const financialSummary = getFinancialPeriodSummary(financial, 'today', referenceDate);
+
+  const receivedSummary = getPeriodReceivedSummary(sales, financial, 'today', referenceDate);
 
   return (
     <main className="content analytics-content">
@@ -41,7 +46,7 @@ export function DashboardPage({ onNavigate, cashData }: DashboardPageProps) {
       </div>
 
       {openCash && cashSummary && <button className="dashboard-cash-indicator" onClick={() => onNavigate('cash')} type="button">
-        <span><i /> Caixa aberto</span><b>Saldo esperado: {formatMoney(cashSummary.expectedInCents)}</b><small>Dinheiro físico · ver controle do caixa →</small>
+        <span><i /> {cashLabel(openCash)}</span><b>Saldo esperado: {formatMoney(cashSummary.expectedInCents)}</b><small>Dinheiro físico · ver controle do caixa →</small>
       </button>}
 
       {error ? <div className="analytics-error" role="alert">{error}</div> : loading ? (
@@ -49,7 +54,7 @@ export function DashboardPage({ onNavigate, cashData }: DashboardPageProps) {
       ) : (
         <>
           <section aria-label="Indicadores de hoje" className="analytics-stat-grid">
-            <StatCard accent="green" label="Faturamento hoje" value={formatMoney(todayMetrics.revenueInCents)} detail="Vendas concluídas hoje" />
+            <StatCard accent="green" label="Faturamento hoje" value={formatMoney(todayMetrics.revenueInCents)} detail="Total das vendas concluídas hoje" />
             <StatCard accent="blue" label="Vendas hoje" value={String(todayMetrics.saleCount)} detail={todayMetrics.saleCount === 1 ? 'Venda concluída' : 'Vendas concluídas'} />
             <StatCard accent="purple" label="Ticket médio" value={formatMoney(todayMetrics.averageTicketInCents)} detail="Faturamento ÷ vendas de hoje" />
             <StatCard accent="orange" label="Última venda" value={allMetrics.latestSale ? formatMoney(allMetrics.latestSale.totalInCents) : 'Sem vendas'} detail={allMetrics.latestSale
@@ -57,13 +62,17 @@ export function DashboardPage({ onNavigate, cashData }: DashboardPageProps) {
               : 'Ainda não há vendas registradas'} />
           </section>
 
+          <section className="analytics-financial-summary" aria-label="Devoluções e créditos no período">
+            <p>Faturamento: vendas concluídas. Recebido líquido: dinheiro, Pix e cartões menos reembolsos realizados. Emitir crédito não reduz o recebido; usar crédito em uma compra não gera novo recebimento.</p>
+            <div><span>Valor recebido líquido <b>{formatMoney(receivedSummary.netReceivedInCents)}</b></span><span>Reembolsos realizados <b>{formatMoney(financialSummary.refundedInCents)}</b></span><span>Reembolsos pendentes <b>{formatMoney(financialSummary.pendingInCents)}</b></span><span>Créditos emitidos <b>{formatMoney(financialSummary.issuedCreditInCents)}</b></span></div>
+          </section>
           <div className="analytics-dashboard-grid">
             <section aria-labelledby="dashboard-payments-title" className="analytics-panel">
               <div className="analytics-panel-heading">
-                <div><h2 id="dashboard-payments-title">Formas de pagamento</h2><p>Valores aplicados às vendas de hoje.</p></div>
+                <div><h2 id="dashboard-payments-title">Formas de pagamento</h2><p>Pagamentos registrados hoje, inclusive de vendas canceladas. Reembolsos aparecem separadamente.</p></div>
                 <span className="analytics-period-badge">Hoje</span>
               </div>
-              <PaymentBreakdown totalInCents={todayMetrics.revenueInCents} totals={paymentTotals} />
+              <PaymentBreakdown totalInCents={Object.values(paymentTotals).reduce((sum, value) => sum + value, 0)} totals={paymentTotals} />
             </section>
 
             <section aria-labelledby="recent-sales-title" className="analytics-panel recent-sales-panel">

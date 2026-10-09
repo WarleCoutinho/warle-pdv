@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "node --test --test-concurrency=1 tests/cash.test.mjs tests/backup.test.mjs tests/financial.test.mjs"
   },
   "dependencies": {
     "react": "^19.3.0",

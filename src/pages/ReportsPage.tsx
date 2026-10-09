@@ -6,7 +6,7 @@ import { StatCard } from '../components/StatCard';
 import { usePersistedSales } from '../hooks/usePersistedSales';
 import type { AppPage } from '../types/navigation';
 import { formatMoney } from '../utils/money';
-import { filterSalesByPeriod, getPaymentTotals, getSalesMetrics, getSalesTrend, type SalesPeriod } from '../utils/salesAnalytics';
+import { filterSalesByPeriod, filterRecordedSalesByPeriod, getPaymentTotals, getFinancialPeriodSummary, getPeriodReceivedSummary, getSalesMetrics, getSalesTrend, type SalesPeriod } from '../utils/salesAnalytics';
 
 type ReportsPageProps = {
   onNavigate: (page: AppPage) => void;
@@ -20,13 +20,16 @@ const periodOptions: { id: SalesPeriod; label: string }[] = [
 
 export function ReportsPage({ onNavigate }: ReportsPageProps) {
   const [period, setPeriod] = useState<SalesPeriod>('today');
-  const { sales, loading, error } = usePersistedSales();
-  const referenceDate = useMemo(() => new Date(), []);
+  const { sales, financial, referenceDate, loading, error } = usePersistedSales();
   const periodSales = useMemo(() => filterSalesByPeriod(sales, period, referenceDate), [sales, period, referenceDate]);
-  const metrics = useMemo(() => getSalesMetrics(periodSales), [periodSales]);
-  const paymentTotals = useMemo(() => getPaymentTotals(periodSales), [periodSales]);
-  const trend = useMemo(() => getSalesTrend(periodSales, period, referenceDate), [periodSales, period, referenceDate]);
+  const metrics = useMemo(() => getSalesMetrics(periodSales, financial), [periodSales, financial]);
+  const paymentTotals = useMemo(() => getPaymentTotals(filterRecordedSalesByPeriod(sales, period, referenceDate), true), [sales, period, referenceDate]);
+  const trend = useMemo(() => getSalesTrend(periodSales, period, referenceDate), [periodSales, period, referenceDate, financial]);
   const periodLabel = periodOptions.find((option) => option.id === period)?.label.toLocaleLowerCase('pt-BR') ?? 'período';
+
+  const financialSummary = getFinancialPeriodSummary(financial, period, referenceDate);
+
+  const receivedSummary = getPeriodReceivedSummary(sales, financial, period, referenceDate);
 
   return (
     <main className="content analytics-content">
@@ -45,10 +48,10 @@ export function ReportsPage({ onNavigate }: ReportsPageProps) {
       ) : (
         <>
           <section aria-label={`Indicadores: ${periodLabel}`} className="analytics-stat-grid">
-            <StatCard accent="green" label="Faturamento" value={formatMoney(metrics.revenueInCents)} detail={`Total de ${periodLabel}`} />
+            <StatCard accent="green" label="Faturamento" value={formatMoney(metrics.revenueInCents)} detail="Total das vendas concluídas no período" />
             <StatCard accent="blue" label="Vendas" value={String(metrics.saleCount)} detail={metrics.saleCount === 1 ? 'Venda no período' : 'Vendas no período'} />
             <StatCard accent="purple" label="Ticket médio" value={formatMoney(metrics.averageTicketInCents)} detail="Faturamento ÷ vendas" />
-            <StatCard accent="orange" label="Maior venda" value={formatMoney(metrics.biggestSaleInCents)} detail="Maior total individual" />
+            <StatCard accent="orange" label="Maior venda" value={formatMoney(metrics.biggestSaleInCents)} detail="Valor original da venda" />
           </section>
 
           {metrics.saleCount === 0 && (
@@ -58,6 +61,10 @@ export function ReportsPage({ onNavigate }: ReportsPageProps) {
             </div>
           )}
 
+          <section className="analytics-financial-summary" aria-label="Devoluções e créditos no período">
+            <p>Faturamento: vendas concluídas. Recebido líquido: dinheiro, Pix e cartões menos reembolsos realizados. Emitir crédito não reduz o recebido; usar crédito em uma compra não gera novo recebimento.</p>
+            <div><span>Valor recebido líquido <b>{formatMoney(receivedSummary.netReceivedInCents)}</b></span><span>Reembolsos realizados <b>{formatMoney(financialSummary.refundedInCents)}</b></span><span>Reembolsos pendentes <b>{formatMoney(financialSummary.pendingInCents)}</b></span><span>Créditos emitidos <b>{formatMoney(financialSummary.issuedCreditInCents)}</b></span></div>
+          </section>
           <div className="analytics-report-grid">
             <section aria-labelledby="sales-chart-title" className="analytics-panel">
               <div className="analytics-panel-heading">
@@ -67,9 +74,9 @@ export function ReportsPage({ onNavigate }: ReportsPageProps) {
             </section>
             <section aria-labelledby="report-payments-title" className="analytics-panel">
               <div className="analytics-panel-heading">
-                <div><h2 id="report-payments-title">Formas de pagamento</h2><p>Distribuição do total recebido no período.</p></div>
+                <div><h2 id="report-payments-title">Formas de pagamento</h2><p>Pagamentos registrados, inclusive de vendas canceladas. Crédito usado não é novo recebimento.</p></div>
               </div>
-              <PaymentBreakdown showPercentages totalInCents={metrics.revenueInCents} totals={paymentTotals} />
+              <PaymentBreakdown showPercentages totalInCents={Object.values(paymentTotals).reduce((sum, value) => sum + value, 0)} totals={paymentTotals} />
             </section>
           </div>
         </>

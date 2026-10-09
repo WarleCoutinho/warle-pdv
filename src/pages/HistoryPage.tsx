@@ -1,11 +1,16 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Receipt, type ReceiptPaperSize } from '../components/Receipt';
 import { AppPageTopBar } from '../components/AppPageTopBar';
-import { paymentMethodLabels, type PaymentMethod } from '../types/payment';
+import { useModalFocus } from '../hooks/useModalFocus';
+import { paymentMethodLabels, type SaleTenderMethod } from '../types/payment';
 import type { AppPage } from '../types/navigation';
 import { saleCancellationReasonLabels, type Sale, type SaleCancellationReason } from '../types/sale';
 import type { StoreSettings } from '../types/settings';
-import { cancelCompletedSale, listSales } from '../services/saleStorage';
+import { cancelSaleAndRestoreCustomerCredit } from '../services/saleStorage';
+import { SaleFinancialPanel } from '../components/SaleFinancialPanel';
+import { CustomerCreditLookupPanel } from '../components/CustomerCreditLookupPanel';
+import { usePersistedSales } from '../hooks/usePersistedSales';
+import { getReceivedSummary } from '../utils/salesAnalytics';
 import { formatMoney } from '../utils/money';
 import { printCurrentReceipt } from '../utils/printing';
 import { getSaleStatus } from '../utils/saleStatus';
@@ -26,28 +31,16 @@ const timeFormatter = new Intl.DateTimeFormat('pt-BR', {
 });
 
 export function HistoryPage({ onNavigate, settings }: HistoryPageProps) {
-  const [sales, setSales] = useState<Sale[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const { sales, financial, referenceDate, loading, error: loadError } = usePersistedSales();
   const [query, setQuery] = useState('');
   const [period, setPeriod] = useState<PeriodFilter>('all');
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod | 'all'>('all');
+  const [paymentMethod, setPaymentMethod] = useState<SaleTenderMethod | 'all'>('all');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [selectedSale, setSelectedSale] = useState<Sale | null>(null);
 
-  useEffect(() => {
-    try {
-      setSales(listSales());
-    } catch {
-      setLoadError('Não foi possível carregar as vendas salvas. Verifique os dados no armazenamento local.');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
   const filteredSales = useMemo(() => {
     const normalizedQuery = query.trim().replace(/^#/, '');
-    const today = new Date();
+    const today = referenceDate;
     const weekStart = startOfWeek(today);
     const nextWeekStart = new Date(weekStart);
     nextWeekStart.setDate(nextWeekStart.getDate() + 7);
@@ -67,12 +60,15 @@ export function HistoryPage({ onNavigate, settings }: HistoryPageProps) {
         const matchesStatus = statusFilter === 'all' || getSaleStatus(sale) === statusFilter;
         return matchesNumber && matchesPeriod && matchesPayment && matchesStatus;
       });
-  }, [sales, query, period, paymentMethod, statusFilter]);
+  }, [sales, query, period, paymentMethod, statusFilter, referenceDate]);
 
   function handleSaleUpdated(updatedSale: Sale) {
-    setSales((current) => current.map((sale) => sale.id === updatedSale.id ? updatedSale : sale));
     setSelectedSale(updatedSale);
   }
+
+  const filteredIds = new Set(filteredSales.map((sale) => sale.id));
+  const totals = getReceivedSummary(filteredSales, financial.refunds.filter((refund) => filteredIds.has(refund.saleId)));
+  useEffect(() => { setSelectedSale((selected) => selected ? sales.find((sale) => sale.id === selected.id) ?? null : null); }, [sales]);
 
   return (
     <div className="shell history-shell">
@@ -84,8 +80,10 @@ export function HistoryPage({ onNavigate, settings }: HistoryPageProps) {
             <h1>Histórico de vendas</h1>
             <div className="sub">Consulte vendas realizadas e reimprima comprovantes.</div>
           </div>
-          {!loading && !loadError && <span className="history-count">{filteredSales.length} {filteredSales.length === 1 ? 'venda' : 'vendas'}</span>}
+          {!loading && !loadError && <span className="history-count">{totals.saleCount} concluída(s) · {totals.cancelledCount} cancelada(s)</span>}
         </div>
+
+        <CustomerCreditLookupPanel />
 
         <section aria-label="Filtros do histórico" className="history-filters">
           <div className="history-search">
@@ -110,12 +108,12 @@ export function HistoryPage({ onNavigate, settings }: HistoryPageProps) {
           </div>
           <div>
             <label htmlFor="history-payment">Forma de pagamento</label>
-            <select id="history-payment" onChange={(event) => setPaymentMethod(event.target.value as PaymentMethod | 'all')} value={paymentMethod}>
+            <select id="history-payment" onChange={(event) => setPaymentMethod(event.target.value as SaleTenderMethod | 'all')} value={paymentMethod}>
               <option value="all">Todas</option>
               <option value="cash">Dinheiro</option>
               <option value="pix">Pix</option>
               <option value="debit">Débito</option>
-              <option value="credit">Crédito</option>
+              <option value="credit">Crédito</option><option value="customer_credit">Crédito do cliente</option>
             </select>
           </div>
           <div>
@@ -126,6 +124,7 @@ export function HistoryPage({ onNavigate, settings }: HistoryPageProps) {
           </div>
         </section>
 
+        {!loading && !loadError && <section className="analytics-financial-summary" aria-label="Totais do histórico"><p>Totais das vendas filtradas. Canceladas ficam no histórico; emitir crédito não é saída de dinheiro. Reembolsos abaixo pertencem a essas vendas, mesmo quando realizados depois.</p><div><span>Vendas concluídas <b>{totals.saleCount}</b></span><span>Faturamento <b>{formatMoney(totals.revenueInCents)}</b></span><span>Reembolsos realizados <b>{formatMoney(totals.refundedInCents)}</b></span><span>Valor recebido líquido <b>{formatMoney(totals.netReceivedInCents)}</b></span></div></section>}
         {loadError ? (
           <div className="history-message error" role="alert">{loadError}</div>
         ) : loading ? (
@@ -179,17 +178,11 @@ function SaleDetailsModal({ sale, onSaleUpdated, onClose, settings }: SaleDetail
   const [cancellationError, setCancellationError] = useState<string | null>(null);
   const saleDate = new Date(sale.date);
 
-  useEffect(() => {
-    function closeOnEscape(event: KeyboardEvent) {
-      if (event.key === 'Escape') onClose();
-    }
-    window.addEventListener('keydown', closeOnEscape);
-    return () => window.removeEventListener('keydown', closeOnEscape);
-  }, [onClose]);
+  const dialogRef = useModalFocus(onClose);
 
   return (
     <div className="overlay success-overlay history-detail-overlay" onClick={(event) => event.target === event.currentTarget && onClose()}>
-      <section aria-labelledby="history-detail-title" aria-modal="true" className="modal history-detail-modal" role="dialog">
+      <section aria-labelledby="history-detail-title" aria-modal="true" className="modal history-detail-modal" ref={dialogRef} role="dialog" tabIndex={-1}>
         <div className="modalhead">
           <div><h2 id="history-detail-title">Venda #{String(sale.number).padStart(6, '0')}</h2><div className="sub" style={{ marginTop: 5 }}>{dateFormatter.format(saleDate)} às {timeFormatter.format(saleDate)}</div></div>
           <button aria-label="Fechar detalhes" className="x" onClick={onClose} type="button">×</button>
@@ -229,6 +222,8 @@ function SaleDetailsModal({ sale, onSaleUpdated, onClose, settings }: SaleDetail
             ))}
           </section>
 
+          <SaleFinancialPanel sale={sale} settings={settings} />
+
           <div className="receipt-controls history-receipt-controls">
             <label htmlFor="history-receipt-paper">Largura do papel</label>
             <select id="history-receipt-paper" onChange={(event) => setPaperSize(event.target.value as ReceiptPaperSize)} value={paperSize}>
@@ -245,19 +240,17 @@ function SaleDetailsModal({ sale, onSaleUpdated, onClose, settings }: SaleDetail
           </div>
         </div>
       </section>
-      {showCancellation && <SaleCancellationModal error={cancellationError} onClose={() => setShowCancellation(false)} onConfirm={(reason, note) => {
-        try { const updated = cancelCompletedSale(sale.id, reason, note); onSaleUpdated(updated); setShowCancellation(false); }
-        catch (error) { setCancellationError(error instanceof Error ? error.message : 'Não foi possível cancelar a venda.'); }
-      }} sale={sale} />}
+      {showCancellation && <SaleCancellationModal error={cancellationError} onClose={() => setShowCancellation(false)} onConfirm={async (reason, note) => { try { const updated = await cancelSaleAndRestoreCustomerCredit(sale.id, reason, note); onSaleUpdated(updated); setShowCancellation(false); } catch (error) { setCancellationError(error instanceof Error ? error.message : 'Não foi possível cancelar a venda.'); } }} sale={sale} />}
     </div>
   );
 }
 
 function SaleCancellationModal({ sale, error, onClose, onConfirm }: { sale: Sale; error: string | null; onClose: () => void; onConfirm: (reason: SaleCancellationReason, note: string) => void; }) {
+  const dialogRef = useModalFocus<HTMLFormElement>(onClose);
   const [reason, setReason] = useState<SaleCancellationReason | ''>(''); const [note, setNote] = useState('');
   const canConfirm = reason !== '' && (reason !== 'other' || !!note.trim());
   return <div className="overlay cancellation-overlay" onClick={(event) => event.target === event.currentTarget && onClose()}>
-    <form aria-labelledby="cancel-sale-title" aria-modal="true" className="modal cancellation-modal" onSubmit={(event) => { event.preventDefault(); if (canConfirm) onConfirm(reason as SaleCancellationReason, note); }} role="dialog">
+    <form aria-labelledby="cancel-sale-title" aria-modal="true" className="modal cancellation-modal" ref={dialogRef} tabIndex={-1} onSubmit={(event) => { event.preventDefault(); if (canConfirm) onConfirm(reason as SaleCancellationReason, note); }} role="dialog">
       <div className="modalhead"><h2 id="cancel-sale-title">Cancelar venda #{String(sale.number).padStart(6, '0')}?</h2><button aria-label="Fechar confirmação" className="x" onClick={onClose} type="button">×</button></div>
       <div className="modalbody cancellation-body"><p>Esta ação marcará a venda como cancelada. Ela continuará disponível no histórico, mas deixará de participar dos cálculos de vendas e faturamento.</p>
         <label className="field" htmlFor="cancellation-reason">Motivo do cancelamento<select id="cancellation-reason" onChange={(event) => setReason(event.target.value as SaleCancellationReason | '')} required value={reason}><option disabled value="">Selecione um motivo</option>{Object.entries(saleCancellationReasonLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>

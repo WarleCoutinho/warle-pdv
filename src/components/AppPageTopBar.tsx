@@ -8,7 +8,7 @@ type AppPageTopBarProps = {
 
 export function AppPageTopBar({ activePage, onNavigate }: AppPageTopBarProps) {
   return (
-    <header className={`app-page-topbar ${activePage === 'history' ? 'history-top' : ''}`}>
+    <header className="app-page-topbar">
       <div className="pos-brand">
         <span aria-hidden="true" className="logo">✳</span>
         raiz

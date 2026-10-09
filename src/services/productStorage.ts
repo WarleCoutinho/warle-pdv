@@ -1,7 +1,13 @@
 import { products as initialProducts } from '../data/products';
 import type { Product } from '../types/product';
 
-const PRODUCTS_STORAGE_KEY = 'raiz-pdv:products';
+export const PRODUCTS_STORAGE_KEY = 'raiz-pdv:products';
+const MAX_PRODUCT_IMAGE_DATA_URL_LENGTH = 700_000;
+
+export function validateProductsBackup(value: unknown): Product[] {
+  if (!Array.isArray(value) || !value.every(isProduct)) throw new Error('A lista de produtos do backup é inválida.');
+  return value;
+}
 
 /** Loads the saved catalog, seeding and saving the demo catalog on first run. */
 export function loadProducts(): Product[] {
@@ -45,6 +51,9 @@ function isProduct(value: unknown): value is Product {
     && Number.isSafeInteger(product.priceInCents) && Number(product.priceInCents) > 0
     && typeof product.category === 'string' && product.category.trim().length > 0
     && typeof product.active === 'boolean'
-    && typeof product.emoji === 'string';
+    && typeof product.emoji === 'string'
+    && (product.imageDataUrl === undefined || (typeof product.imageDataUrl === 'string'
+      && /^data:image\/(?:png|webp|svg\+xml);base64,/i.test(product.imageDataUrl)
+      && product.imageDataUrl.length <= MAX_PRODUCT_IMAGE_DATA_URL_LENGTH));
 }
 

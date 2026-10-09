@@ -41,4 +41,43 @@ Os produtos demonstrativos de `src/data/products.ts` e as configurações padrã
 - `outputs/index.html`: protótipo navegável original.
 - `outputs/Direcao-visual.md`: identidade visual, componentes e recomendações de UX.
 
-Os dados de Início e Relatórios consideram somente vendas concluídas; o Histórico preserva vendas canceladas com seus itens, pagamentos e valores originais. Vendas antigas sem status são tratadas como concluídas. Estoque, clientes, cancelamento e os demais módulos do protótipo ainda não estão implementados.
+Os dados de Início e Relatórios consideram somente vendas concluídas; o Histórico preserva vendas canceladas com seus itens, pagamentos e valores originais. Vendas antigas sem status são tratadas como concluídas. Estoque, clientes e outras funções fora do escopo atual ainda não estão implementados.
+
+
+## Apuração no fechamento de caixa
+
+O fechamento confere separadamente dinheiro, Pix, débito e crédito em centavos. O dinheiro esperado inclui fundo inicial, pagamentos em dinheiro registrados, suprimentos e sangrias; meios eletrônicos não entram no saldo físico. O operador informa manualmente cada valor, revisa as diferenças e confirma o fechamento. A apuração é salva junto à sessão no armazenamento local e não é recalculada no histórico.
+
+Sessões fechadas antes desta apuração continuam compatíveis e exibem somente o que foi gravado, com aviso de que Pix e cartões não foram conferidos. O cancelamento não cria automaticamente captura, estorno ou devolução. Os eventos financeiros são registrados separadamente; pagamentos registrados permanecem na apuração até existir um reembolso concluído explícito; uma venda cancelada não reduz automaticamente o saldo.
+
+## Etapa 11.1 — devoluções e resolução financeira
+
+Cancelamento integral, devolução física, reembolso e crédito possuem registros distintos. Devoluções parciais limitam a compensação ao valor dos itens devolvidos; devoluções totais e cancelamentos permitem o total da venda, descontando compensações anteriores e créditos restaurados. Pendências reservam esse limite, mas somente reembolsos concluídos alteram o caixa; falhas liberam a reserva. Dinheiro é devolvido no caixa atual aberto sem modificar fechamentos antigos.
+
+Créditos têm código aleatório seguro, armazenado apenas como SHA-256, uso parcial e misto e proteção entre abas com Web Locks. O backup v2 inclui o ledger, valida relações financeiras e conserva rollback; backups v1 mantêm o ledger vazio. Dados antigos não recebem eventos financeiros reconstruídos.
+
+## Dashboard e relatórios financeiros
+
+Faturamento, ticket médio, maior venda e gráficos usam o valor original das vendas concluídas. Recebido líquido soma dinheiro, Pix e cartões e desconta somente reembolsos realizados; gerar crédito não reduz o faturamento nem o recebido. Cancelamentos ficam fora do faturamento. A contagem mantém as vendas concluídas, inclusive quando houve devolução total, para não confundir devolução com cancelamento.
+
+A distribuição mostra os pagamentos originais das vendas concluídas, incluindo crédito do cliente, com percentuais sobre esses pagamentos. Crédito interno não é novo recebimento em dinheiro. Reembolsos realizados, pendências e créditos emitidos aparecem separadamente por data de registro (reembolsos realizados usam a data de conclusão), sem descontar duas vezes do faturamento. As telas acompanham mudanças de vendas e do ledger, inclusive entre abas, e renovam a referência de data ao retomar a janela e a cada minuto.
+
+
+Histórico, Caixa, Início e Relatórios compartilham as regras de faturamento e recebimentos. A contagem separa concluídas de canceladas; devolução física ou emissão de crédito não cancela uma venda. Pagamentos de canceladas permanecem nos recebimentos até o reembolso real. Crédito usado numa compra compõe o valor da venda, mas não representa dinheiro novo.
+
+Compare os mesmos filtros: Histórico considera as vendas filtradas e seus reembolsos; Início/Relatórios consideram a data das vendas e a data efetiva dos reembolsos; Caixa considera a sessão em que o recebimento ou reembolso ocorreu. Novos fechamentos salvam contagens e recebido líquido. Fechamentos antigos mantêm o valor originalmente gravado, identificado como histórico, sem recálculo.
+
+## Operadores e separação diária de caixas
+
+Cadastre operadores em Configurações e salve as alterações. A abertura exige um operador ativo e grava seu nome, identificador, data de operação e horário de entrada. O fechamento grava a data e hora reais em que foi realizado. A identidade histórica é preservada mesmo após editar ou inativar o cadastro.
+
+A data do caixa usa America/Sao_Paulo. Na virada do dia, uma sessão ainda aberta aparece como pendente e deixa de aceitar vendas, suprimentos, sangrias e reembolsos em dinheiro. O mesmo operador deve fechar sua pendência antes de abrir o caixa do dia; outro operador pode abrir o de hoje. Existe apenas um caixa atual por dia e operador. Pendências podem ser conferidas e fechadas individualmente sem alterar o caixa atual. Caixas legados sem operador permanecem identificados como tal e precisam ser fechados antes de nova abertura.
+
+Vendas antigas e seus vínculos não são movidos para novas sessões. A validação ocorre também ao gravar a venda, protegendo uma tela que ficou aberta durante a virada do dia. Operadores e dados das sessões entram no backup nas estruturas de configurações e caixa, preservando compatibilidade com backups antigos.
+
+
+## Entrada de operador
+
+Ao iniciar o sistema, entre com usuário e senha. O acesso inicial é Admin / 123456; altere a senha em Configurações. Apenas o administrador pode cadastrar, inativar operadores, alterar senhas, restaurar backup ou limpar dados. Cadastre nome, usuário e senha de pelo menos seis caracteres e salve as alterações. As senhas são armazenadas como verificadores PBKDF2 com salt, sem texto legível.
+
+A abertura usa o operador conectado. Sair / trocar operador encerra o acesso, mas preserva o caixa aberto. Outro operador precisa entrar com sua própria senha e não pode vender nem movimentar o caixa alheio. O administrador pode fechar caixas pendentes. Trocar a senha invalida os acessos anteriores e exige entrar novamente. O acesso permanece durante a sessão da aba; não integra serviço externo de autenticação.

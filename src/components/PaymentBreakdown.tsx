@@ -1,13 +1,13 @@
-import { paymentMethodLabels, type PaymentMethod } from '../types/payment';
+import { paymentMethodLabels, type SaleTenderMethod } from '../types/payment';
 import { formatMoney } from '../utils/money';
 
 type PaymentBreakdownProps = {
-  totals: Record<PaymentMethod, number>;
+  totals: Record<SaleTenderMethod, number>;
   totalInCents: number;
   showPercentages?: boolean;
 };
 
-const methods: PaymentMethod[] = ['cash', 'pix', 'debit', 'credit'];
+const methods: SaleTenderMethod[] = ['cash', 'pix', 'debit', 'credit', 'customer_credit'];
 
 export function PaymentBreakdown({ totals, totalInCents, showPercentages = false }: PaymentBreakdownProps) {
   return (
@@ -25,7 +25,7 @@ export function PaymentBreakdown({ totals, totalInCents, showPercentages = false
             <div aria-label={`${paymentMethodLabels[method]}: ${percent}%`} className="payment-breakdown-track" role="img">
               <span className={`payment-breakdown-fill payment-fill-${method}`} style={{ width: `${width}%` }} />
             </div>
-            {showPercentages && <small>{percent}% do faturamento do período</small>}
+            {showPercentages && <small>{percent}% dos pagamentos registrados</small>}
           </div>
         );
       })}

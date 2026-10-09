@@ -6,6 +6,7 @@ export type Product = {
   category: string;
   active: boolean;
   emoji: string;
+  imageDataUrl?: string;
 };
 
 export type CartItem = {

@@ -21,9 +21,8 @@ export type Sale = {
   id: string;
   number: number;
   date: string;
-  /** Cash register session active when the sale was completed. Missing on legacy sales. */
   cashSessionId?: string;
-  /** Missing on legacy sales; interpret it as completed. */
+  /** Missing in legacy records; interpret it as completed. */
   status?: SaleStatus;
   cancelledAt?: string;
   cancellationReason?: SaleCancellationReason;

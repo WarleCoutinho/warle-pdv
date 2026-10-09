@@ -1,11 +1,18 @@
+import { assertCurrentCashSession } from './cashStorage';
 import type { SalePayment } from '../types/payment';
 import type { Sale, SaleCancellationReason, SaleItem } from '../types/sale';
 import type { CartItem } from '../types/product';
 import { multiplyMoney, sumMoney } from '../utils/money';
 import { calculatePaymentTotals } from '../utils/payments';
 import { isCompletedSale } from '../utils/saleStatus';
+import { commitCreditRedemptions, releaseCreditReservations, reserveCreditRedemptions, restoreCreditsForCancelledSale, withCustomerCreditLock } from './saleFinancialStorage';
 
-const SALES_STORAGE_KEY = 'raiz-pdv:completed-sales';
+export const SALES_STORAGE_KEY = 'raiz-pdv:completed-sales';
+
+export function validateSalesBackup(value: unknown): Sale[] {
+  if (!Array.isArray(value) || !value.every(isSale)) throw new Error('A lista de vendas do backup é inválida.');
+  return value;
+}
 
 export function listSales(): Sale[] {
   const raw = localStorage.getItem(SALES_STORAGE_KEY);
@@ -33,6 +40,7 @@ export function clearStoredSales(): void {
 
 export function saveCompletedSale(items: CartItem[], totalInCents: number, payments: SalePayment[], cashSessionId: string): Sale {
   if (!cashSessionId) throw new Error('Abra um caixa antes de concluir a venda.');
+  assertCurrentCashSession(cashSessionId);
   const sales = listSales();
   const number = sales.reduce((max, sale) => Math.max(max, sale.number), 0) + 1;
   if (!Number.isSafeInteger(number)) throw new Error('Não foi possível gerar o número da venda.');
@@ -45,8 +53,9 @@ export function saveCompletedSale(items: CartItem[], totalInCents: number, payme
     status: 'completed',
     items: items.map(toSaleItem),
     totalInCents,
-    payments: payments.map((payment) => ({ ...payment })),
+    payments: payments.map((payment) => ({ ...payment, capturedAt: new Date().toISOString() })),
   };
+  if (payments.some((payment) => payment.method === 'customer_credit')) throw new Error('Use a finalização protegida para vendas com crédito do cliente.');
   if (!isSale(sale)) throw new Error('Os dados da venda não passaram na validação.');
 
   try {
@@ -54,9 +63,51 @@ export function saveCompletedSale(items: CartItem[], totalInCents: number, payme
   } catch {
     throw new Error('Não foi possível salvar a venda. A venda não foi concluída.');
   }
+  notifySalesChanged();
   return sale;
 }
 
+export async function saveCompletedSaleWithCustomerCredit(items: CartItem[], totalInCents: number, payments: SalePayment[], cashSessionId: string): Promise<Sale> {
+  if (!cashSessionId) throw new Error('Abra um caixa antes de concluir a venda.');
+  assertCurrentCashSession(cashSessionId);
+  const sales = listSales();
+  const number = sales.reduce((max, sale) => Math.max(max, sale.number), 0) + 1;
+  if (!Number.isSafeInteger(number)) throw new Error('Não foi possível gerar o número da venda.');
+  const sale: Sale = { id: createSaleId(), number, date: new Date().toISOString(), cashSessionId, status: 'completed', items: items.map(toSaleItem), totalInCents, payments: payments.map((payment) => ({ ...payment, capturedAt: new Date().toISOString() })) };
+  if (!isSale(sale)) throw new Error('Os dados da venda não passaram na validação.');
+  return withCustomerCreditLock(() => {
+    assertCurrentCashSession(cashSessionId);
+    const previousRaw = localStorage.getItem(SALES_STORAGE_KEY);
+    const currentSales = listSales();
+    if (currentSales.some((item) => item.number >= number)) throw new Error('O número da venda mudou durante a finalização. Atualize e tente novamente.');
+    const requested = payments.filter((payment) => payment.method === 'customer_credit').map((payment) => ({ creditId: payment.customerCreditId ?? '', amountInCents: payment.amountInCents }));
+    reserveCreditRedemptions(sale.id, requested);
+    try { localStorage.setItem(SALES_STORAGE_KEY, JSON.stringify([...currentSales, sale])); }
+    catch { releaseCreditReservations(sale.id); throw new Error('Não foi possível salvar a venda; nenhum crédito foi consumido.'); }
+    try { commitCreditRedemptions(sale); }
+    catch (error) {
+      try { if (previousRaw === null) localStorage.removeItem(SALES_STORAGE_KEY); else localStorage.setItem(SALES_STORAGE_KEY, previousRaw); releaseCreditReservations(sale.id); }
+      catch { throw new Error('A venda foi salva, mas o registro do crédito está pendente. Não repita a venda; atualize o sistema e procure suporte.'); }
+      throw error;
+    }
+    notifySalesChanged();
+    return sale;
+  });
+}
+
+export async function cancelSaleAndRestoreCustomerCredit(saleId: string, reason: SaleCancellationReason, note = ''): Promise<Sale> {
+  return withCustomerCreditLock(() => {
+    const previousRaw = localStorage.getItem(SALES_STORAGE_KEY);
+    const cancelled = cancelCompletedSale(saleId, reason, note);
+    try { restoreCreditsForCancelledSale(cancelled); }
+    catch (error) {
+      try { if (previousRaw !== null) localStorage.setItem(SALES_STORAGE_KEY, previousRaw); }
+      catch { throw new Error('O cancelamento e a restauração de crédito ficaram inconsistentes. Não repita a operação; procure suporte.'); }
+      throw error;
+    }
+    return cancelled;
+  });
+}
 export function cancelCompletedSale(saleId: string, reason: SaleCancellationReason, note = ''): Sale {
   if (!['launch_error', 'customer_cancelled', 'payment_error', 'other'].includes(reason)) throw new Error('Selecione um motivo válido para cancelar a venda.');
   if (reason === 'other' && !note.trim()) throw new Error('Descreva o motivo do cancelamento.');
@@ -71,6 +122,7 @@ export function cancelCompletedSale(saleId: string, reason: SaleCancellationReas
   const updatedSales = [...sales]; updatedSales[saleIndex] = cancelledSale;
   try { localStorage.setItem(SALES_STORAGE_KEY, JSON.stringify(updatedSales)); }
   catch { throw new Error('Não foi possível salvar o cancelamento no armazenamento local.'); }
+  notifySalesChanged();
   return cancelledSale;
 }
 
@@ -127,8 +179,11 @@ function isSaleItem(value: unknown): value is SaleItem {
 function isSalePayment(value: unknown): value is SalePayment {
   if (typeof value !== 'object' || value === null) return false;
   const payment = value as Record<string, unknown>;
-  if (!['cash', 'pix', 'debit', 'credit'].includes(String(payment.method))
-    || !Number.isSafeInteger(payment.amountInCents) || Number(payment.amountInCents) <= 0) return false;
+  if (!['cash', 'pix', 'debit', 'credit', 'customer_credit'].includes(String(payment.method))
+    || !Number.isSafeInteger(payment.amountInCents) || Number(payment.amountInCents) <= 0
+    || (payment.capturedAt !== undefined && (typeof payment.capturedAt !== 'string' || !Number.isFinite(Date.parse(payment.capturedAt))))) return false;
+  if (payment.method === 'customer_credit') return typeof payment.customerCreditId === 'string' && !!payment.customerCreditId && payment.amountReceivedInCents === undefined && payment.changeInCents === undefined;
+  if (payment.customerCreditId !== undefined) return false;
   if (payment.method !== 'cash') return payment.amountReceivedInCents === undefined && payment.changeInCents === undefined;
   return Number.isSafeInteger(payment.amountReceivedInCents)
     && Number(payment.amountReceivedInCents) >= Number(payment.amountInCents)
@@ -139,4 +194,8 @@ function isSalePayment(value: unknown): value is SalePayment {
 function createSaleId(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
   return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function notifySalesChanged(): void {
+  if (typeof window !== 'undefined') window.dispatchEvent(new Event('raiz-pdv:data-changed'));
 }

@@ -1,10 +1,11 @@
 import { useMemo, useState, type FormEvent } from 'react';
+import { useModalFocus } from '../hooks/useModalFocus';
 import { AppPageTopBar } from '../components/AppPageTopBar';
 import type { AppPage } from '../types/navigation';
 import type { Product } from '../types/product';
 import { formatMoney, parseMoneyInput } from '../utils/money';
 
-type ProductDraft = Pick<Product, 'name' | 'category' | 'priceInCents' | 'active'>;
+type ProductDraft = Pick<Product, 'name' | 'category' | 'priceInCents' | 'active' | 'imageDataUrl'>;
 type ProductsPageProps = {
   products: Product[];
   onProductsChange: (products: Product[]) => void;
@@ -98,7 +99,7 @@ export function ProductsPage({ products, onProductsChange, onNavigate }: Product
               <thead><tr><th>Produto</th><th>Categoria</th><th>Preço</th><th>Status</th><th>Ações</th></tr></thead>
               <tbody>{filteredProducts.map((product) => (
                 <tr key={product.id}>
-                  <td><span className="products-name"><span aria-hidden="true">{product.emoji}</span><b>{product.name}</b></span></td>
+                  <td><span className="products-name">{product.imageDataUrl ? <img alt="" className="products-name-image" src={product.imageDataUrl} /> : <span aria-hidden="true">{product.emoji}</span>}<b>{product.name}</b></span></td>
                   <td>{product.category}</td><td className="products-price">{formatMoney(product.priceInCents)}</td>
                   <td><span className={`products-status ${product.active ? 'is-active' : 'is-inactive'}`}>{product.active ? 'Ativo' : 'Inativo'}</span></td>
                   <td><div className="products-actions">
@@ -118,10 +119,13 @@ export function ProductsPage({ products, onProductsChange, onNavigate }: Product
 }
 
 function ProductForm({ categories, product, onClose, onSave }: ProductFormProps) {
+  const dialogRef = useModalFocus(onClose);
   const [name, setName] = useState(product?.name ?? '');
   const [category, setCategory] = useState(product?.category ?? '');
   const [price, setPrice] = useState(product ? formatPriceInput(product.priceInCents) : '');
   const [active, setActive] = useState(product?.active ?? true);
+  const [imageDataUrl, setImageDataUrl] = useState(product?.imageDataUrl ?? '');
+  const [imageError, setImageError] = useState('');
   const [errors, setErrors] = useState<{ name?: string; category?: string; price?: string }>({});
 
   function submit(event: FormEvent<HTMLFormElement>) {
@@ -134,12 +138,12 @@ function ProductForm({ categories, product, onClose, onSave }: ProductFormProps)
     };
     setErrors(nextErrors);
     if (Object.keys(nextErrors).length > 0 || parsedPrice === null) return;
-    onSave({ name: name.trim(), category: category.trim(), priceInCents: parsedPrice, active });
+    onSave({ name: name.trim(), category: category.trim(), priceInCents: parsedPrice, active, imageDataUrl: imageDataUrl || undefined });
   }
 
   return (
     <div className="overlay" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-      <section aria-labelledby="product-form-title" aria-modal="true" className="modal product-form-modal" role="dialog">
+      <section aria-labelledby="product-form-title" aria-modal="true" className="modal product-form-modal" ref={dialogRef} role="dialog" tabIndex={-1}>
         <div className="modalhead"><h2 id="product-form-title">{product ? 'Editar produto' : 'Novo produto'}</h2><button aria-label="Fechar" className="x" onClick={onClose} type="button">×</button></div>
         <form onSubmit={submit}>
           <div className="modalbody product-form-body">
@@ -156,6 +160,31 @@ function ProductForm({ categories, product, onClose, onSave }: ProductFormProps)
               <span className="product-price-input"><span>R$</span><input inputMode="decimal" onChange={(event) => setPrice(event.target.value)} placeholder="0,00" value={price} /></span>
               {errors.price && <small role="alert">{errors.price}</small>}
             </label>
+            <div className="product-image-field">
+              <label className="product-field" htmlFor="product-image">Imagem do produto</label>
+              <div className="product-image-picker">
+                {imageDataUrl ? <img alt="Prévia do produto" className="product-image-preview" src={imageDataUrl} /> : <div className="product-image-placeholder" aria-hidden="true">{product?.emoji ?? '📦'}</div>}
+                <div className="product-image-actions">
+                  <input accept="image/png,image/webp,image/svg+xml,.png,.webp,.svg" id="product-image" onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    setImageError('');
+                    if (!file) return;
+                    if (!['image/png', 'image/webp', 'image/svg+xml'].includes(file.type)) { setImageError('Escolha uma imagem PNG, WebP ou SVG.'); event.target.value = ''; return; }
+                    if (file.size > 512 * 1024) { setImageError('A imagem deve ter até 512 KB para preservar o espaço local.'); event.target.value = ''; return; }
+                    const reader = new FileReader();
+                    reader.onload = () => {
+                      if (typeof reader.result === 'string') setImageDataUrl(reader.result);
+                      else setImageError('Não foi possível ler esta imagem.');
+                    };
+                    reader.onerror = () => setImageError('Não foi possível ler esta imagem.');
+                    reader.readAsDataURL(file);
+                  }} type="file" />
+                  <small>PNG, WebP ou SVG · até 512 KB · exibida em formato quadrado</small>
+                  {imageDataUrl && <button className="product-image-remove" onClick={() => { setImageDataUrl(''); setImageError(''); }} type="button">Remover imagem</button>}
+                </div>
+              </div>
+              {imageError && <small className="product-image-error" role="alert">{imageError}</small>}
+            </div>
             {product && <label className="product-active-field"><input checked={active} onChange={(event) => setActive(event.target.checked)} type="checkbox" /> Produto ativo</label>}
           </div>
           <div className="modalfoot"><button className="btn secondary" onClick={onClose} type="button">Cancelar</button><button className="btn primary" type="submit">Salvar produto</button></div>

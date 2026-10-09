@@ -1,5 +1,7 @@
+import type { KeyboardEvent } from 'react';
 import type { CartItem } from '../types/product';
 import { formatMoney } from '../utils/money';
+import { getAdjacentIndex } from '../utils/keyboardNavigation';
 import { CartItemRow } from './CartItemRow';
 
 type CartPanelProps = {
@@ -21,8 +23,23 @@ export function CartPanel({
 }: CartPanelProps) {
   const itemCount = items.reduce((count, item) => count + item.quantity, 0);
 
+  function handleCartKeyDown(event: KeyboardEvent<HTMLElement>) {
+    if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+    const target = event.target;
+    if (!(target instanceof HTMLElement) || target.closest('input,select,textarea,[contenteditable=true]')) return;
+    const currentRow = target.closest('.cartitem');
+    if (!currentRow) return;
+    const rows = Array.from(event.currentTarget.querySelectorAll<HTMLElement>('.cartitem'));
+    const currentIndex = rows.indexOf(currentRow as HTMLElement);
+    const nextIndex = getAdjacentIndex(currentIndex, event.key === 'ArrowDown' ? 1 : -1, rows.length);
+    const nextRow = nextIndex >= 0 ? rows[nextIndex] : undefined;
+    if (!nextRow) return;
+    const nextControl = nextRow.querySelector<HTMLButtonElement>('button:not(.remove)');
+    if (nextControl) { event.preventDefault(); nextControl.focus(); }
+  }
+
   return (
-    <aside className="card cart" aria-label="Carrinho de compras">
+    <aside className="card cart" aria-label="Carrinho de compras" onKeyDown={handleCartKeyDown}>
       <div className="carthead">
         <h2>Carrinho</h2>
         <span className="badge">{itemCount} {itemCount === 1 ? 'item' : 'itens'}</span>

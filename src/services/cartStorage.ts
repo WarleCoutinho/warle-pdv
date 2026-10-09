@@ -1,7 +1,7 @@
 import type { CartItem, Product } from '../types/product';
 import { multiplyMoney } from '../utils/money';
 
-const CART_STORAGE_KEY = 'raiz-pdv:draft-cart';
+export const CART_STORAGE_KEY = 'raiz-pdv:draft-cart';
 
 type StoredCartItem = {
   productId: string;

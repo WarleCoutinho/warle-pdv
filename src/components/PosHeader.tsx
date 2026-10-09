@@ -7,13 +7,13 @@ type PosHeaderProps = {
 
 export function PosHeader({ onNavigate }: PosHeaderProps) {
   return (
-    <div className="pos-top">
+    <header className="app-page-topbar">
       <div className="pos-brand">
         <span className="logo" aria-hidden="true">✳</span>
         raiz
         <span className="local-status">• &nbsp;<b>Operação local</b> · pronto para vender</span>
       </div>
       <PageNavigation activePage="pos" onNavigate={onNavigate} />
-    </div>
+    </header>
   );
 }

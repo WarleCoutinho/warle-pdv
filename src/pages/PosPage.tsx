@@ -5,7 +5,7 @@ import { PaymentModal } from '../components/PaymentModal';
 import { PosHeader } from '../components/PosHeader';
 import { ProductCatalog } from '../components/ProductCatalog';
 import { loadDraftCart, saveDraftCart } from '../services/cartStorage';
-import { saveCompletedSale } from '../services/saleStorage';
+import { saveCompletedSale, saveCompletedSaleWithCustomerCredit } from '../services/saleStorage';
 import { getOpenCashSession, loadCashData } from '../services/cashStorage';
 import type { CartItem, Product } from '../types/product';
 import type { SalePayment } from '../types/payment';
@@ -53,9 +53,11 @@ type PosPageProps = {
   products: Product[];
   settings: StoreSettings;
   cashSessionId?: string;
+  cashSessionLabel?: string;
+  hasPendingCash?: boolean;
 };
 
-export function PosPage({ onNavigate, products, settings, cashSessionId }: PosPageProps) {
+export function PosPage({ onNavigate, products, settings, cashSessionId, cashSessionLabel, hasPendingCash }: PosPageProps) {
   const finalizingSale = useRef(false);
   const [cart, dispatch] = useReducer(cartReducer, products, loadDraftCart);
   const [search, setSearch] = useState('');
@@ -102,43 +104,37 @@ export function PosPage({ onNavigate, products, settings, cashSessionId }: PosPa
 
   function addPayment(payment: SalePayment) {
     const { pendingInCents } = calculatePaymentTotals(totalInCents, payments);
-    const enteredInCents = payment.method === 'cash'
-      ? payment.amountReceivedInCents ?? 0
-      : payment.amountInCents;
-    const validatedPayment = createSalePayment(payment.method, enteredInCents, pendingInCents);
-    if (!validatedPayment) return;
-    setPayments((current) => [...current, validatedPayment]);
-  }
-
-  function finalizePayment() {
-    if (!cashSessionId || finalizingSale.current || cart.length === 0 || payments.length === 0) return;
-    const persistedOpenSession = getOpenCashSession(loadCashData());
-    if (!persistedOpenSession || persistedOpenSession.id !== cashSessionId) {
-      setPaymentError('O caixa foi fechado ou trocado. Abra o caixa novamente antes de concluir a venda.');
+    if (payment.method === 'customer_credit') {
+      if (!payment.customerCreditId || !Number.isSafeInteger(payment.amountInCents) || payment.amountInCents <= 0 || payment.amountInCents > pendingInCents) return;
+      setPayments((current) => [...current, payment]);
       return;
     }
+    const enteredInCents = payment.method === 'cash' ? payment.amountReceivedInCents ?? 0 : payment.amountInCents;
+    const validatedPayment = createSalePayment(payment.method, enteredInCents, pendingInCents);
+    if (validatedPayment) setPayments((current) => [...current, validatedPayment]);
+  }
+
+  async function finalizePayment() {
+    if (!cashSessionId || finalizingSale.current || cart.length === 0 || payments.length === 0) return;
+    const persistedOpenSession = getOpenCashSession(loadCashData());
+    if (!persistedOpenSession || persistedOpenSession.id !== cashSessionId) { setPaymentError('O caixa foi fechado ou trocado. Abra o caixa novamente antes de concluir a venda.'); return; }
     if (calculatePaymentTotals(totalInCents, payments).pendingInCents !== 0) return;
-    finalizingSale.current = true;
-    setPaymentError(null);
+    finalizingSale.current = true; setPaymentError(null);
     try {
-      const sale = saveCompletedSale(cart, totalInCents, payments, cashSessionId);
-      saveDraftCart([]);
-      setCompletedSale(sale);
-      setShowPayment(false);
-      setPayments([]);
-      dispatch({ type: 'clear' });
+      const sale = payments.some((payment) => payment.method === 'customer_credit')
+        ? await saveCompletedSaleWithCustomerCredit(cart, totalInCents, payments, cashSessionId)
+        : saveCompletedSale(cart, totalInCents, payments, cashSessionId);
+      saveDraftCart([]); setCompletedSale(sale); setShowPayment(false); setPayments([]); dispatch({ type: 'clear' });
     } catch (error) {
       finalizingSale.current = false;
-      setPaymentError(error instanceof Error && (error.message.startsWith('Os dados das vendas salvas') || error.message.startsWith('Abra um caixa'))
-        ? error.message
-        : 'Não foi possível salvar a venda. A venda não foi concluída. Verifique o armazenamento local e tente novamente.');
+      setPaymentError(error instanceof Error ? error.message : 'Não foi possível salvar a venda. Verifique o armazenamento local e tente novamente.');
     }
   }
 
   return (
     !cashSessionId ? <main className="content cash-blocked-content">
-      <div className="cash-closed-card"><span aria-hidden="true" className="cash-state-icon">◷</span><h1>Caixa fechado</h1>
-        <p>O caixa está fechado. Abra o caixa antes de iniciar uma venda.</p>
+      <div className="cash-closed-card"><span aria-hidden="true" className="cash-state-icon">◷</span><h1>{hasPendingCash ? "Caixa pendente de fechamento" : "Entrada do operador"}</h1>
+        <p>Selecione o operador e abra o caixa de hoje. Um caixa de outra data não pode receber novas vendas.</p>
         <button className="btn primary" onClick={() => onNavigate('cash')} type="button">Abrir caixa</button>
       </div>
     </main> :
@@ -151,7 +147,7 @@ export function PosPage({ onNavigate, products, settings, cashSessionId }: PosPa
               <h1>Nova venda</h1>
               <div className="sub">Toque nos produtos para adicionar ao carrinho.</div>
             </div>
-            <span className="open-pill">● Atendimento rápido</span>
+            <span className="open-pill">● Caixa {cashSessionLabel}</span>
           </div>
           <div className="pos">
             <ProductCatalog

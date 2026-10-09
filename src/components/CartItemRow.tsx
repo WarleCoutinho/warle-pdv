@@ -14,8 +14,8 @@ export function CartItemRow({ item, onIncrement, onDecrement, onRemove }: CartIt
       <div>
         <b>{item.product.name}</b>
         <small>{formatMoney(item.unitPriceInCents)} cada</small>
-        <button className="remove" onClick={onRemove} type="button">
-          Remover
+        <button aria-label={`Remover ${item.product.name}`} className="remove" onClick={onRemove} type="button">
+          <span aria-hidden="true">×</span> Remover
         </button>
       </div>
       <div className="qty" aria-label={`Quantidade de ${item.product.name}`}>

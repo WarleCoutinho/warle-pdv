@@ -1,7 +1,10 @@
-import { useState, type FormEvent } from 'react';
+import { createPasswordDigest } from '../services/operatorAccess';
+import { useState, type ChangeEvent, type FormEvent } from 'react';
 import { AppPageTopBar } from '../components/AppPageTopBar';
 import type { AppPage } from '../types/navigation';
 import type { StoreSettings } from '../types/settings';
+import { useModalFocus } from '../hooks/useModalFocus';
+import { createBackupJson, getRestoreSafetyCopy, parseBackupJson, restoreBackup, type BackupDocument } from '../services/backupStorage';
 
 type SettingsPageProps = {
   settings: StoreSettings;
@@ -12,11 +15,20 @@ type SettingsPageProps = {
 
 export function SettingsPage({ settings, onNavigate, onSaveSettings, onClearLocalData }: SettingsPageProps) {
   const [draft, setDraft] = useState<StoreSettings>({ ...settings });
+  const [operatorName, setOperatorName] = useState('');
+  const [operatorUsername, setOperatorUsername] = useState('');
+  const [passwords, setPasswords] = useState<Record<string, string>>({});
+  const [saving, setSaving] = useState(false);
   const [feedback, setFeedback] = useState('');
   const [error, setError] = useState('');
   const [nameError, setNameError] = useState('');
   const [showClearModal, setShowClearModal] = useState(false);
   const [confirmationText, setConfirmationText] = useState('');
+  const [restoreCandidate, setRestoreCandidate] = useState<{ backup: BackupDocument; summary: ReturnType<typeof parseBackupJson>['summary'] } | null>(null);
+  const [backupError, setBackupError] = useState('');
+  const [safetyCopy, setSafetyCopy] = useState<string | null>(() => { try { return getRestoreSafetyCopy(); } catch { return null; } });
+  const clearDialogRef = useModalFocus(showClearModal ? closeClearModal : undefined, { active: showClearModal });
+  const restoreDialogRef = useModalFocus(restoreCandidate ? () => setRestoreCandidate(null) : undefined, { active: Boolean(restoreCandidate) });
 
   function update<K extends keyof StoreSettings>(field: K, value: StoreSettings[K]) {
     setDraft((current) => ({ ...current, [field]: value }));
@@ -25,15 +37,19 @@ export function SettingsPage({ settings, onNavigate, onSaveSettings, onClearLoca
     setNameError('');
   }
 
-  function save(event: FormEvent<HTMLFormElement>) {
+  async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!draft.storeName.trim()) {
       setFeedback('');
       setNameError('Informe o nome do estabelecimento.');
       return;
     }
+    if (saving) return; setSaving(true);
     try {
-      const saved = onSaveSettings(draft);
+      const operators = await Promise.all((draft.operators ?? []).map(async (operator) => ({ ...operator, ...(passwords[operator.id] ? { passwordDigest: await createPasswordDigest(passwords[operator.id]) } : {}) })));
+      if (operators.some((operator) => operator.active && !operator.passwordDigest)) throw new Error('Defina uma senha para cada operador ativo.');
+      const saved = onSaveSettings({ ...draft, operators });
+      setPasswords({});
       setDraft(saved);
       setNameError('');
       setError('');
@@ -41,6 +57,33 @@ export function SettingsPage({ settings, onNavigate, onSaveSettings, onClearLoca
     } catch (saveError) {
       setFeedback('');
       setError(saveError instanceof Error ? saveError.message : 'Não foi possível salvar as configurações.');
+    } finally { setSaving(false); }
+  }
+
+  async function readBackupFile(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    setBackupError('');
+    if (file.size > 10 * 1024 * 1024) { setBackupError('O arquivo excede o limite seguro de 10 MB.'); return; }
+    try {
+      const parsed = parseBackupJson(await file.text());
+      setRestoreCandidate(parsed);
+    } catch (backupFailure) {
+      setRestoreCandidate(null);
+      setBackupError(backupFailure instanceof Error ? backupFailure.message : 'Não foi possível validar este arquivo.');
+    }
+  }
+
+  function confirmRestore() {
+    if (!restoreCandidate) return;
+    try {
+      restoreBackup(restoreCandidate.backup);
+      window.location.reload();
+    } catch (restoreFailure) {
+      setBackupError(restoreFailure instanceof Error ? restoreFailure.message : 'Não foi possível restaurar o backup.');
+      setRestoreCandidate(null);
+      try { setSafetyCopy(getRestoreSafetyCopy()); } catch { setSafetyCopy(null); }
     }
   }
 
@@ -89,6 +132,8 @@ export function SettingsPage({ settings, onNavigate, onSaveSettings, onClearLoca
           </label>
         </section>
 
+        <section className="settings-card" aria-labelledby="settings-operators-title"><h2 id="settings-operators-title">Operadores e senhas</h2><p>Somente o administrador pode cadastrar operadores. Senhas precisam ter ao menos 6 caracteres.</p><label className="settings-field">Nome do operador<input maxLength={80} value={operatorName} onChange={(event) => setOperatorName(event.target.value)} /></label><label className="settings-field">Usuário do operador<input maxLength={80} value={operatorUsername} onChange={(event) => setOperatorUsername(event.target.value)} /></label><button className="btn secondary" type="button" disabled={!operatorName.trim() || !operatorUsername.trim() || saving} onClick={() => { update('operators', [...(draft.operators ?? []), { id: crypto.randomUUID(), name: operatorName.trim(), username: operatorUsername.trim(), role: 'operator', active: true }]); setOperatorName(''); setOperatorUsername(''); }}>Adicionar operador</button>{(draft.operators ?? []).map((operator) => <div className="operator-account" key={operator.id}><label className="settings-field">Nome<input maxLength={80} value={operator.name} onChange={(event) => update('operators', draft.operators!.map((item) => item.id === operator.id ? { ...item, name: event.target.value } : item))} /></label><label className="settings-field">Usuário<input maxLength={80} value={operator.username ?? operator.name} onChange={(event) => update('operators', draft.operators!.map((item) => item.id === operator.id ? { ...item, username: event.target.value } : item))} /></label><label className="settings-field">{operator.passwordDigest ? 'Nova senha (deixe vazio para manter)' : 'Definir senha'}<input aria-label={'Senha de ' + (operator.username ?? operator.name)} type="password" autoComplete="new-password" maxLength={128} value={passwords[operator.id] ?? ''} onChange={(event) => setPasswords({ ...passwords, [operator.id]: event.target.value })} /></label><span>{operator.role === 'admin' ? 'Administrador Mestre' : 'Operador'}</span><label><input type="checkbox" checked={operator.active} onChange={(event) => update('operators', draft.operators!.map((item) => item.id === operator.id ? { ...item, active: event.target.checked } : item))} /> Ativo</label></div>)}<small>Salvar alterações confirma os cadastros e senhas. Ao alterar sua própria senha, entre novamente.</small></section>
+
         <section aria-labelledby="settings-receipt-title" className="settings-card">
           <div className="settings-card-heading"><span aria-hidden="true">▤</span><div><h2 id="settings-receipt-title">Comprovante</h2><p>Personalize a mensagem impressa no final do comprovante.</p></div></div>
           <label className="settings-field">Mensagem no rodapé <span>Opcional</span>
@@ -96,6 +141,22 @@ export function SettingsPage({ settings, onNavigate, onSaveSettings, onClearLoca
           </label>
           <div aria-live="polite" className="settings-character-count">{draft.receiptFooter.length}/200 caracteres</div>
           <div className="settings-receipt-preview"><span>Prévia do rodapé</span>{draft.receiptFooter ? <b>{draft.receiptFooter}</b> : <small>Sem mensagem no rodapé</small>}</div>
+        </section>
+
+        <section aria-labelledby="settings-backup-title" className="settings-card settings-backup-card">
+          <div className="settings-card-heading"><span aria-hidden="true">⇧</span><div><h2 id="settings-backup-title">Backup e restauração</h2><p>Exporte seus dados para guardar uma cópia ou restaure um arquivo de backup validado.</p></div></div>
+          <div className="settings-backup-actions">
+            <button className="btn primary" onClick={() => {
+              try { downloadJson(createBackupJson(), `raiz-pdv-backup-${new Date().toISOString().slice(0, 10)}.json`); setBackupError(''); }
+              catch (backupFailure) { setBackupError(backupFailure instanceof Error ? backupFailure.message : 'Não foi possível exportar o backup.'); }
+            }} type="button">⇩ Exportar backup</button>
+            <label className="settings-backup-file">Selecionar backup JSON
+              <input accept=".json,application/json" onChange={readBackupFile} type="file" />
+            </label>
+          </div>
+          <p className="settings-backup-includes">Inclui produtos, configurações, vendas e dados completos do caixa. O carrinho em edição fica de fora.</p>
+          {safetyCopy && <div className="settings-safety-copy"><span>Cópia de segurança anterior à última restauração disponível neste computador.</span><button className="text-action" onClick={() => downloadJson(safetyCopy, `raiz-pdv-seguranca-anterior-${new Date().toISOString().slice(0, 10)}.json`)} type="button">Baixar cópia</button></div>}
+          {backupError && <div className="settings-error" role="alert">{backupError}</div>}
         </section>
 
         <section aria-labelledby="settings-local-title" className="settings-card settings-local-card">
@@ -106,12 +167,12 @@ export function SettingsPage({ settings, onNavigate, onSaveSettings, onClearLoca
           </div>
         </section>
 
-        <div className="settings-actions"><button className="btn primary" type="submit">Salvar alterações</button></div>
+        <div className="settings-actions"><button className="btn primary" disabled={saving} type="submit">{saving ? "Salvando…" : "Salvar alterações"}</button></div>
       </form>
 
       {showClearModal && (
         <div className="overlay settings-clear-overlay" onMouseDown={(event) => { if (event.target === event.currentTarget) closeClearModal(); }}>
-          <section aria-describedby="settings-clear-description" aria-labelledby="settings-clear-title" aria-modal="true" className="modal settings-clear-modal" role="alertdialog">
+          <section aria-describedby="settings-clear-description" aria-labelledby="settings-clear-title" aria-modal="true" className="modal settings-clear-modal" ref={clearDialogRef} role="alertdialog" tabIndex={-1}>
             <div className="settings-warning-icon" aria-hidden="true">!</div>
             <h2 id="settings-clear-title">Apagar dados locais?</h2>
             <p id="settings-clear-description">Esta ação apagará as vendas armazenadas neste computador, os produtos cadastrados, as configurações e o rascunho do carrinho. As vendas serão perdidas e não poderão ser recuperadas.</p>
@@ -123,7 +184,35 @@ export function SettingsPage({ settings, onNavigate, onSaveSettings, onClearLoca
           </section>
         </div>
       )}
+
+      {restoreCandidate && <div className="overlay settings-restore-overlay" onMouseDown={(event) => { if (event.target === event.currentTarget) setRestoreCandidate(null); }}>
+        <section aria-describedby="settings-restore-description" aria-labelledby="settings-restore-title" aria-modal="true" className="modal settings-restore-modal" ref={restoreDialogRef} role="alertdialog" tabIndex={-1}>
+          <div className="settings-warning-icon" aria-hidden="true">⇧</div>
+          <h2 id="settings-restore-title">Confirmar restauração?</h2>
+          <p id="settings-restore-description">Os dados atuais serão substituídos pelos dados deste arquivo. Uma cópia de segurança local será criada antes da troca, e a aplicação será recarregada.</p>
+          <div className="settings-restore-summary">
+            <b>Conteúdo do backup</b>
+            <span>{restoreCandidate.summary.products} produtos ({restoreCandidate.summary.activeProducts} ativos)</span>
+            <span>{restoreCandidate.summary.sales} vendas ({restoreCandidate.summary.cancelledSales} canceladas)</span>
+            <span>{restoreCandidate.summary.cashSessions} sessões de caixa ({restoreCandidate.summary.closedSessions} fechadas)</span>
+            <span>{restoreCandidate.summary.cashMovements} suprimentos/sangrias</span>
+            <small>Exportado em {new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(restoreCandidate.summary.exportedAt))}</small>
+          </div>
+          {backupError && <div className="settings-error" role="alert">{backupError}</div>}
+          <div className="settings-clear-actions"><button className="btn secondary" onClick={() => setRestoreCandidate(null)} type="button">Cancelar</button><button className="settings-confirm-restore" onClick={confirmRestore} type="button">Restaurar e recarregar</button></div>
+        </section>
+      </div>}
     </main>
   );
 }
 
+
+
+function downloadJson(contents: string, filename: string): void {
+  const url = URL.createObjectURL(new Blob([contents], { type: 'application/json;charset=utf-8' }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  link.click();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
