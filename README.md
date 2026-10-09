@@ -101,3 +101,24 @@ O Raiz PDV continua no navegador com as mesmas chaves e formatos locais. As tela
 `npm test` inclui os testes da nova camada; `npm run test:ui` inclui os três roteiros anteriores e o novo roteiro assíncrono, com Edge e servidor em `http://127.0.0.1:5173/`. Os testes usam armazenamento em memória ou contextos de navegador isolados, sem limpar os dados da operação real. `npm run test:all` executa testes, interface e build.
 
 Consulte [o relatório 12A](docs/etapa-12a-persistencia.md) e [o modelo desktop atualizado](docs/preparacao-electron-sqlite.md), incluindo limites do localStorage, recuperação, idempotência futura e compatibilidade de backups v1/v2.
+
+
+## Etapa 12B — execução desktop
+
+Requer Node.js 22.12 ou superior. Electron 44.7.0 é uma dependência de desenvolvimento; não há SQLite, instalador ou migração de dados nesta etapa.
+
+```bash
+npm install
+npm run dev:desktop
+npm run build:desktop
+npm run start:desktop
+npm run typecheck
+npm run test:all
+npm run test:desktop
+```
+
+`dev:desktop` compila main/preload e usa Vite em `http://127.0.0.1:5173/`, iniciando o servidor quando necessário. Alterações React usam HMR; alterações em main/preload exigem reiniciar o comando. `start:desktop` usa somente os arquivos compilados, pelo protocolo local `raiz://app`, sem servidor Vite. `test:desktop:production` verifica o build local sem depender do servidor web. `test:all` e a parte web de `test:desktop` exigem `npm run dev` disponível na porta 5173.
+
+No Windows, o perfil Electron fica em `%APPDATA%\Raiz PDV`. Desenvolvimento e build local usam partições distintas. Os dados do navegador são independentes: esta etapa não copia nem sincroniza vendas entre os ambientes. Ambos usam os contratos e o adaptador web da Etapa 12A, com as mesmas chaves e formatos. Sessões de operadores continuam temporárias.
+
+A janela mantém sandbox, isolamento de contexto e Node desabilitado no renderer. A única API pública é `window.raizDesktop?.getAppInfo()`, que devolve nome, versão e ambiente. Não há API de arquivos, SQL ou operações financeiras por IPC. Veja o diagnóstico, as garantias e os testes no [relatório da Etapa 12B](docs/etapa-12b-electron.md).

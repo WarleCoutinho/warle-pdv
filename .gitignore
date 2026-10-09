@@ -12,3 +12,6 @@ work/npm-cache/
 Thumbs.db
 desktop.ini
 
+# Desktop compilado e evidencias locais
+dist-electron/
+outputs/etapa-12b/

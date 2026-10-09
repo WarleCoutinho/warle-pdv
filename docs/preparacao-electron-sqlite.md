@@ -3,9 +3,9 @@
 Data: 09/10/2026. Repositório `WarleCoutinho/warle-pdv`, branch `codex/react-pos-base`.
 Base publicada: `b7509ee` (Etapa 11.2). Este documento substitui o planejamento preliminar da Etapa 11; o diagnóstico financeiro detalhado permanece em [Etapa 11.2](etapa-11-2-estabilizacao.md).
 
-## 1. Estado atual e fronteiras
+## 1. Estado na conclusão da Etapa 12A e fronteiras
 
-React 19, TypeScript e Vite continuam no navegador. Nenhuma dependência Electron/SQLite foi instalada e nenhum banco, IPC, preload ou migração foi criado.
+Na conclusão da Etapa 12A, o sistema funcionava exclusivamente no navegador. A estrutura Electron foi adicionada na Etapa 12B; SQLite e migração continuam planejados para uma etapa posterior.
 
 A Etapa 12A implementou `React → aplicação → contratos Promise → adaptador web`. `createWebRepositories()` compõe os serviços estabilizados; `createPdvApplication(repositories)` permite injetar outra implementação. `ApplicationContext` distribui a aplicação; apenas o ponto de composição seleciona o web. As telas não importam os serviços de armazenamento. A seleção futura deve ocorrer nesse ponto, usando um único backend por execução, sem dual-write.
 
@@ -118,3 +118,18 @@ Há uma fronteira assíncrona utilizável e testada, com composição e domínio
 Antes da etapa SQLite, escolher biblioteca, configuração de conexão/backup, limites IPC, códigos de erro serializados, gestão temporária de autenticação e identificadores duráveis de comandos idempotentes; portar comandos financeiros mantendo testes de conformidade. O backend web atual não garante idempotência durável de duas invocações completas de venda simples: a UI bloqueia submissão simultânea e não aplica retry automático. Esse limite deve ser resolvido no contrato de transporte/aplicação antes de aceitar retries por IPC, sem reescrever telas ou regras financeiras.
 
 Não existe adaptador Electron fictício, banco simulado ou código de instalação nesta etapa. Resultados e limitações da implementação estão no [relatório 12A](etapa-12a-persistencia.md).
+
+
+## Atualização da Etapa 12B
+
+Electron 44.7.0 está implementado em main/preload/shared separados, com sandbox, isolamento, Node desabilitado no renderer e somente o IPC tipado getAppInfo. Ambos os ambientes usam createWebRepositories; não há IPC financeiro, banco ou migração nesta etapa.
+
+O build usa raiz://app/index.html, origem padrão e segura que mantém localStorage, Web Locks e Web Crypto. O main serve somente index e assets autorizados. O perfil Windows é %APPDATA%\Raiz PDV, com partições distintas de desenvolvimento e produção. Os dados do navegador não são copiados automaticamente. CSP, restrições de navegação/rede/janelas, negação de permissões e validação de origem real/frame/WebContents protegem a fronteira. Downloads limitam-se ao backup JSON iniciado pelo usuário, com diálogo nativo.
+
+### Preparação para a Etapa 12C
+
+O caminho previsto é React → aplicação → contratos → adaptador Electron → preload tipado → IPC validado → main → SQLite. Selecionar um único backend no ponto de composição, sem dual-write. Cada comando financeiro completo deverá validar autorização do operador e autenticação de crédito no backend, ter identificador idempotente e resultado durável, e executar todas as escritas relacionadas em transação real. Não expor SQL, caminhos ou IPC arbitrário ao renderer.
+
+O modelo relacional acima permanece válido, incluindo centavos INTEGER, integridade referencial, reservas/recuperação, históricos imutáveis e modalidades eletrônicas líquidas negativas quando reembolsos superam recebimentos. A migração deverá ser explícita e versionada, com validação de backups v1/v2, cópia anterior e histórico de importação. Distinguir credenciais persistentes de sessões temporárias; não confiar em autorização informada pelo renderer.
+
+A estrutura está preparada para iniciar a implementação futura, condicionada a testes de conformidade, concorrência e falhas para o novo adaptador. Banco, instalador, assinatura e atualização automática permanecem fora desta etapa. Veja [o relatório da Etapa 12B](etapa-12b-electron.md).
