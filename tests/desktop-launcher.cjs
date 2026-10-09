@@ -18,7 +18,7 @@ const assert = require('node:assert/strict');
     });
     browser = await chromium.connectOverCDP(endpoint);
     const context = browser.contexts()[0]; const page = context.pages()[0] ?? await context.waitForEvent('page');
-    await page.getByRole('heading', { name: 'Entrar no Raiz PDV' }).waitFor();
+    await page.getByRole('heading', { name: 'Configurar Raiz PDV' }).waitFor();
     assert.equal((await page.evaluate(() => window.raizDesktop.getAppInfo())).name, 'Raiz PDV');
     await page.evaluate(() => window.close());
     const code = await Promise.race([exit, new Promise((_, reject) => setTimeout(() => reject(new Error('Launcher não encerrou após fechar a janela.')), 10000))]);

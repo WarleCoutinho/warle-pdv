@@ -9,7 +9,8 @@ import { authorizeAppInfo, contentSecurityPolicy, DESKTOP_URL, ERROR_URL, isAllo
 import { OperationalBackend } from './sqlite/backend.cjs';
 import { handleOperation } from './ipc.cjs';
 import { operationNames } from '../shared/operational.js';
-const sqliteValidation = !app.isPackaged && process.argv.includes('--raiz-sqlite-validation') && process.argv.some(arg=>arg.startsWith('--raiz-profile='));
+import {LifecycleCoordinator,recoverReplacement} from './sqlite/lifecycle.cjs';
+let lifecycle:LifecycleCoordinator|null=null;
 let backend:OperationalBackend|null=null;
 const APP_INFO_CHANNEL: AppInfoChannel = 'raiz:desktop:app-info';
 app.setName('Raiz PDV');
@@ -118,10 +119,11 @@ async function initialize() {
   });
   if (!existsSync(preloadPath)) { await showFailure('MISSING_PRELOAD'); return; }
   if (!developmentUrl && !existsSync(join(rendererRoot, 'index.html'))) { await showFailure('MISSING_RENDERER'); return; }
-  try { foundation = SqliteFoundation.open({ userData: app.getPath('userData'), mode: developmentUrl ? 'development' : 'production' }); }
+  try { recoverReplacement(app.getPath('userData'),developmentUrl?'development':'production');foundation = SqliteFoundation.open({ userData: app.getPath('userData'), mode: developmentUrl ? 'development' : 'production' }); }
   catch (error) { diagnose(error instanceof DatabaseFailure ? error.code : 'DATABASE_OPEN_FAILED'); await showFailure('DATABASE_INITIALIZATION_FAILED'); return; }
   backend=new OperationalBackend(foundation,Date.now,{seal:code=>{if(!safeStorage.isEncryptionAvailable()||(process.platform==='linux'&&safeStorage.getSelectedStorageBackend()==='basic_text'))throw new DatabaseFailure('UNSUPPORTED_OPERATION');return safeStorage.encryptString(code);},open:bytes=>{if(!safeStorage.isEncryptionAvailable()||(process.platform==='linux'&&safeStorage.getSelectedStorageBackend()==='basic_text'))throw new DatabaseFailure('UNSUPPORTED_OPERATION');return safeStorage.decryptString(Buffer.from(bytes));}});
-  for(const name of operationNames)ipcMain.handle(`raiz:pdv:${name}`,(event,...args:unknown[])=>handleOperation(backend!,event,name,args,mainWindow?.webContents===event.sender,developmentUrl,sqliteValidation));
+  lifecycle=new LifecycleCoordinator(backend,app.getPath('userData'),developmentUrl?'development':'production',next=>{backend=next;foundation=next.database;});
+  for(const name of operationNames)ipcMain.handle(`raiz:pdv:${name}`,(event,...args:unknown[])=>handleOperation(backend!,event,name,args,mainWindow?.webContents===event.sender,developmentUrl,!failing,lifecycle!));
   contents.on('destroyed',()=>backend?.disconnect(contentsId));
   contents.on('did-start-navigation',(_event,_url,_inPlace,isMainFrame)=>{if(isMainFrame)backend?.disconnect(contentsId);});
   if (!failing) await mainWindow.loadURL(developmentUrl ?? DESKTOP_URL);

@@ -20,6 +20,10 @@ const amounts=object({cash:money,pix:money,debit:money,credit:money,customer_cre
 const counts=object({cash:money,pix:money,debit:money,credit:money});
 const empty=object({});
 const checks:Record<Operation,Check>={
+ 'lifecycle.status':empty,'lifecycle.setup':object({settings,username:text(80),name:text(80),password:text(128,6),confirmation:text(128,6),mode:enumeration('testing','production'),confirmed:boolean}),'lifecycle.activate':object({confirmed:boolean}),
+ 'backup.create':object({secret:text(128,12)}),'backup.verify':object({secret:text(128,12)}),'backup.restore':object({secret:text(128,12),proofId:id,confirmed:boolean}),
+ 'import.preview':empty,'import.legacyPreview':empty,'import.apply':object({secret:text(128,12),previewId:id,proofId:id,confirmed:boolean}),
+ 'lifecycle.prepare':object({secret:text(128,12),proofId:id,first:boolean,second:boolean,phrase:text(30)}),'credits.recoverReceipt':object({query:text(200),code:text(200)}),
  'operators.authenticate':object({username:text(80),password:text(128)}),'operators.reauthenticate':object({password:text(128)}),'operators.current':empty,'operators.logout':empty,'operators.list':empty,
  'catalog.list':empty,'catalog.save':object({products:array(product)}),'settings.read':empty,'settings.update':object({settings,passwords:record(text(128),1000)}),'installation.read':empty,
  'sales.list':empty,'sales.get':object({id}),'sales.complete':object({...req,items:array(object({productId:id,quantity:integer(1),unitPriceInCents:money}),1000),totalInCents:money,cashSessionId:id,payments:array(object({method:enumeration('cash','pix','debit','credit','customer_credit'),amountInCents:integer(1),amountReceivedInCents:optional(money),changeInCents:optional(money),customerCreditId:optional(id),capturedAt:optional(text(24))}),100)}),

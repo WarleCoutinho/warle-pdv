@@ -36,6 +36,7 @@ export class BackendAuth {
  }
  current(db:TransactionContext,owner:number){try{return this.authorize(db,owner).operator;}catch(e){if(e instanceof DatabaseFailure&&e.code==='UNAUTHORIZED')return null;throw e;}}
  reauthenticate(db:TransactionContext,owner:number,password:string){const {operator,session}=this.authorize(db,owner);this.limited(`reauth:${operator.id}`,()=>this.checkPassword(db,operator.id,password));session.recent=this.now();}
+ invalidateAll(){this.sessions.clear();}
  logout(owner:number){this.sessions.delete(owner);}
  revoke(operatorId:string){for(const [owner,s]of this.sessions)if(s.operatorId===operatorId)this.logout(owner);}
  authorizeCredit(db:TransactionContext,owner:number,query:string,code:string){const {session}=this.authorize(db,owner,{financial:true});const rows=db.all('SELECT * FROM customer_credits WHERE upper(receipt_number)=? OR original_sale_number=?',query.trim().toUpperCase(),querySaleNumber(query));let matched:Record<string,unknown>|undefined;

@@ -736,3 +736,8 @@ body.pos-mode .cash-content{max-width:1420px;padding:22px 32px}
 @media print{body.printing-receipt #root .active-operator-strip,body.printing-credit #root .active-operator-strip{display:none!important}}
 
 .operator-login{min-height:100dvh;display:grid;place-items:center;padding:24px;background:#e9f2ec}.operator-login form{display:grid;gap:18px;width:min(420px,100%);padding:32px;border-radius:16px;background:white;box-shadow:0 10px 30px #20372b18}.operator-login h1{font-size:25px;margin:0;color:#20372b}.operator-login p{margin:0;color:#5d6d63;font-size:14px}.operator-login label{display:grid;gap:8px;font-weight:700;font-size:13px}.operator-login input{height:44px;padding:10px;border:1px solid #cbd6ce;border-radius:8px;font:inherit}.operator-login small{color:#68776e;line-height:1.5}.operator-account{display:grid;gap:10px;padding:14px 0;margin-top:14px;border-top:1px solid #d9e4dc}.active-operator-strip button{margin-left:12px;border:1px solid #739080;border-radius:6px;background:white;padding:4px 8px;color:#244c38;cursor:pointer}
+
+/* Desktop lifecycle forms reuse existing visual language. */
+.desktop-tools label, .settings-page>.settings-card label {display:block;margin:12px 0;}
+.desktop-tools input:not([type=checkbox]), .settings-page>.settings-card input:not([type=checkbox]), .settings-page>.settings-card select {display:block;width:100%;max-width:560px;padding:10px;border:1px solid #b8cbc2;border-radius:8px;}
+.desktop-tools pre, .settings-card pre {white-space:pre-wrap;overflow:auto;max-height:260px;}

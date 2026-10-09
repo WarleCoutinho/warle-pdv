@@ -9,7 +9,9 @@ import type { CashPaymentTotals } from '../../src/domain/cash';
 export type Request<T> = T & { requestId: string };
 export type InstallationDto = { status: 'testing'|'ready_for_setup'|'production'; generation: number };
 export type FinancialOperation='sales.complete'|'sales.cancel'|'cash.open'|'cash.recordMovement'|'cash.close'|'financial.recordReturn'|'financial.settle'|'financial.updateRefund'|'financial.recover';
-export interface Operations {
+import type {LifecycleOperations} from './lifecycle';
+import {lifecycleNames} from './lifecycle';
+export interface Operations extends LifecycleOperations {
   'operators.authenticate': { input: {username:string; password:string}; output: CashOperator };
   'operators.reauthenticate': { input: {password:string}; output: null };
   'operators.current': { input: Record<string,never>; output: CashOperator|null };
@@ -48,4 +50,4 @@ export interface Operations {
 export type Operation = keyof Operations;
 export type Reply<T> = {ok:true;value:T}|{ok:false;error:{code:string}};
 export type DomainApi = {readonly [K in Operation]: (input:Operations[K]['input'])=>Promise<Operations[K]['output']>};
-export const operationNames = ['operators.authenticate','operators.reauthenticate','operators.current','operators.logout','operators.list','catalog.list','catalog.save','settings.read','settings.update','installation.read','sales.list','sales.get','sales.complete','sales.cancel','cash.read','cash.open','cash.recordMovement','cash.close','financial.snapshot','financial.recordReturn','financial.settle','financial.updateRefund','financial.recover','credits.list','credits.authorize','credits.printReceipt','credits.readMovements','operations.prepare','operations.acknowledge','operations.discardPrepared','operations.list','operations.read','draft.read','draft.save'] as const satisfies readonly Operation[];
+export const operationNames = [...lifecycleNames,'operators.authenticate','operators.reauthenticate','operators.current','operators.logout','operators.list','catalog.list','catalog.save','settings.read','settings.update','installation.read','sales.list','sales.get','sales.complete','sales.cancel','cash.read','cash.open','cash.recordMovement','cash.close','financial.snapshot','financial.recordReturn','financial.settle','financial.updateRefund','financial.recover','credits.list','credits.authorize','credits.printReceipt','credits.readMovements','operations.prepare','operations.acknowledge','operations.discardPrepared','operations.list','operations.read','draft.read','draft.save'] as const satisfies readonly Operation[];

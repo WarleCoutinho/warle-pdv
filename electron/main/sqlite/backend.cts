@@ -18,7 +18,12 @@ const json=(value:unknown):JsonValue=>JSON.parse(JSON.stringify(value)) as JsonV
 const normalized=(value:string)=>value.trim().toLocaleLowerCase('pt-BR');
 export class OperationalBackend {
  readonly auth:BackendAuth;
- private drafts=new Map<number,CartItem[]>();
+ private maintenance=false;
+ setMaintenance(value:boolean){this.maintenance=value;}
+ invalidateAll(){this.auth.invalidateAll();}
+ get custody(){return this.vault;}
+ recoverForInitialSetup(db:TransactionContext,operator:CashOperator){return this.recover(db,operator,randomUUID());}
+ checkLedger(){this.database.transaction(db=>this.assertLedger(db));}
  constructor(readonly database:SqliteFoundation,private readonly now:()=>number=Date.now,private readonly vault?:{seal:(secret:string)=>Uint8Array;open:(ciphertext:Uint8Array)=>string}){this.auth=new BackendAuth(now);}
  private assertLedger(db:TransactionContext){
   const data=read.financial(db),sales=read.sales(db);
@@ -36,7 +41,7 @@ export class OperationalBackend {
  }
  private writeCredential(db:TransactionContext,id:string,c:ReturnType<typeof credential>){db.run("INSERT INTO operator_credentials VALUES(?,'PBKDF2-SHA256',?, ?,?,?) ON CONFLICT(operator_id) DO UPDATE SET parameters_json=excluded.parameters_json,salt=excluded.salt,verifier=excluded.verifier,changed_at=excluded.changed_at",id,'{"iterations":210000,"length":32}',c.salt,c.verifier,this.instant());}
  receipt(owner:number,creditId:string){return this.query(owner,(db,operator)=>{const r=db.get('SELECT c.*,f.operator_id AS issuer FROM customer_credits c JOIN financial_refunds f ON f.credit_id=c.id WHERE c.id=?',creditId);if(!r||!r.receipt_ciphertext||!this.vault||(r.issuer!==operator.id&&operator.role!=='admin'))fail('FORBIDDEN');return {credit:read.credit(r),settings:read.settings(db),authCode:this.vault.open(r.receipt_ciphertext as Uint8Array)};},{recent:true,financial:true});}
- disconnect(owner:number){this.auth.logout(owner);this.drafts.delete(owner);}
+ disconnect(owner:number){this.auth.logout(owner);}
  private command<T>(owner:number,name:Operation,input:{requestId:string},work:(db:TransactionContext,operator:CashOperator)=>T):T {
   const {requestId,...payload}=input;
   const recent=['sales.cancel','financial.settle','financial.updateRefund','cash.close','financial.recover'].includes(name);
@@ -45,9 +50,10 @@ export class OperationalBackend {
    db.run('UPDATE operation_requests SET operator_id=?,generation=? WHERE request_id=?',operator!.id,this.database.installationState().generation,requestId);
    try{return json(work(db,operator!));}catch(error){if(error instanceof RangeError)fail('INVALID_REQUEST');throw error;}
   },db=>{
-   const auth=this.auth.authorize(db,owner,{financial:true,recent});operator=auth.operator;
+   const auth=this.auth.authorize(db,owner,{financial:name!=='financial.recover',recent,admin:name==='financial.recover'&&this.database.installationState().status==='ready_for_setup'});operator=auth.operator;
    if(name!=='financial.recover')this.assertLedger(db);
    const previous=db.get('SELECT operator_id,generation FROM operation_requests WHERE request_id=?',requestId);
+   if(!previous&&auth.session.generation>1)fail('FORBIDDEN');
    if(previous&&(previous.operator_id!==operator.id||previous.generation!==auth.session.generation))fail('FORBIDDEN');
   }) as T;
  }
@@ -83,7 +89,7 @@ export class OperationalBackend {
   const id=randomUUID(),date=this.instant(),number=Number(db.get('SELECT next_number FROM sale_sequence WHERE id=1')!.next_number);if(!Number.isSafeInteger(number+1))fail('SALE_INVALID');
   for(const [creditId,amount]of credits)db.run("INSERT INTO customer_credit_reservations VALUES(?,?,?,?,?,?,'reserved')",randomUUID(),creditId,input.requestId,id,amount,date);
   db.run("INSERT INTO sales(id,number,occurred_at,cash_session_id,operator_id,status,total_cents,generation,operator_name_snapshot) VALUES(?,?,?,?,?,'completed',?,?,?)",id,number,date,input.cashSessionId,operator.id,total,auth.session.generation,operator.name);
-  items.forEach((i,index)=>db.run('INSERT INTO sale_items VALUES(?,?,?,?,?,?,?,?,?)',id,i.lineId,index,i.productId,i.productId,i.productName,i.unitPriceInCents,i.quantity,i.subtotalInCents));
+  items.forEach((i,index)=>db.run('INSERT INTO sale_items(sale_id,line_id,position,product_id,catalog_product_id,product_name_snapshot,unit_price_cents,quantity,subtotal_cents) VALUES(?,?,?,?,?,?,?,?,?)',id,i.lineId,index,i.productId,i.productId,i.productName,i.unitPriceInCents,i.quantity,i.subtotalInCents));
   payments.forEach((p,index)=>db.run('INSERT INTO sale_payments VALUES(?,?,?,?,?,?,?,?,?)',randomUUID(),id,index,p.method,p.amountInCents,p.received,p.change,p.customerCreditId??null,date));
   for(const [creditId,amount]of credits){const r=db.get('SELECT balance_cents FROM customer_credits WHERE id=?',creditId)!;this.setBalance(db,creditId,Number(r.balance_cents)-amount);db.run("INSERT INTO customer_credit_movements(id,credit_id,type,amount_cents,occurred_at,sale_id,cash_session_id,operator_id) VALUES(?,?,'redeemed',?,?,?,?,?)",randomUUID(),creditId,amount,date,id,input.cashSessionId,operator.id);db.run("UPDATE customer_credit_reservations SET state='consumed' WHERE sale_id=? AND credit_id=?",id,creditId);}
   db.run('UPDATE sale_sequence SET next_number=? WHERE id=1',number+1);return this.sale(db,id);
@@ -143,7 +149,8 @@ export class OperationalBackend {
   this.assertLedger(db);return null;
  }
  execute<K extends Operation>(owner:number,name:K,payload:unknown):Operations[K]['output']{
-  const p=validate(name,payload);const handlers:{[N in Operation]:(input:Operations[N]['input'])=>Operations[N]['output']}={
+  if(this.maintenance)fail('DATABASE_BUSY');
+  const p=validate(name,payload);const handlers:{[N in Operation]?:(input:Operations[N]['input'])=>Operations[N]['output']}={
    'operators.authenticate':i=>this.database.transaction(db=>this.auth.login(db,owner,i.username,i.password)),
    'operators.reauthenticate':i=>this.database.transaction(db=>{this.auth.reauthenticate(db,owner,i.password);return null;}),
    'operators.current':()=>this.database.transaction(db=>this.auth.current(db,owner)),
@@ -171,15 +178,15 @@ export class OperationalBackend {
    'credits.authorize':i=>this.database.transaction(db=>read.credit(this.auth.authorizeCredit(db,owner,i.query,i.code))),
    'credits.printReceipt':()=>fail('UNSUPPORTED_OPERATION'),
    'credits.readMovements':i=>this.query(owner,db=>read.financial(db).creditMovements.filter(m=>m.creditId===i.creditId)),
-   'operations.prepare':i=>this.query(owner,(db,op)=>{if(!i.payload||typeof i.payload!=='object'||Array.isArray(i.payload)||Object.getPrototypeOf(i.payload)!==Object.prototype||Object.hasOwn(i.payload,'requestId'))fail('INVALID_REQUEST');const checked=validate(i.kind,{...(i.payload as object),requestId:'prepared-validation'});const {requestId:_,...payload}=checked;const hash=createHash('sha256').update(canonicalJson(json(payload))).digest('hex'),generation=this.database.installationState().generation;const prior=db.get("SELECT request_id FROM operation_requests WHERE kind=? AND payload_hash=? AND operator_id=? AND generation=? AND coalesce(result_reference,'')<>'acknowledged' ORDER BY created_at DESC LIMIT 1",i.kind,hash,op.id,generation);if(prior)return {requestId:String(prior.request_id)};if(db.get("SELECT request_id FROM operation_requests WHERE kind=? AND operator_id=? AND generation=? AND coalesce(result_reference,'')<>'acknowledged' LIMIT 1",i.kind,op.id,generation))fail('REQUEST_INTERRUPTED');const requestId=randomUUID();db.run("INSERT INTO operation_requests(request_id,kind,status,payload_hash,created_at,result_reference,operator_id,generation) VALUES(?,?,'pending',?,?,'prepared',?,?)",requestId,i.kind,hash,this.instant(),op.id,generation);return {requestId};},{financial:true}),
-   'operations.acknowledge':i=>this.query(owner,(db,op)=>{const r=db.get('SELECT operator_id,generation,status FROM operation_requests WHERE request_id=?',i.requestId);if(!r||r.operator_id!==op.id||r.generation!==this.database.installationState().generation||r.status!=='committed')fail('FORBIDDEN');db.run("UPDATE operation_requests SET result_reference='acknowledged' WHERE request_id=?",i.requestId);return null;}),
+   'operations.prepare':i=>this.query(owner,(db,op)=>{if(!i.payload||typeof i.payload!=='object'||Array.isArray(i.payload)||Object.getPrototypeOf(i.payload)!==Object.prototype||Object.hasOwn(i.payload,'requestId'))fail('INVALID_REQUEST');const checked=validate(i.kind,{...(i.payload as object),requestId:'prepared-validation'});const {requestId:_,...payload}=checked;const hash=createHash('sha256').update(canonicalJson(json(payload))).digest('hex'),generation=this.database.installationState().generation;const prior=db.get("SELECT request_id FROM operation_requests WHERE kind=? AND payload_hash=? AND operator_id=? AND generation=? AND coalesce(result_reference,'')<>'acknowledged' ORDER BY created_at DESC LIMIT 1",i.kind,hash,op.id,generation);if(prior)return {requestId:String(prior.request_id)};if(db.get("SELECT request_id FROM operation_requests WHERE kind=? AND operator_id=? AND generation=? AND coalesce(result_reference,'')<>'acknowledged' LIMIT 1",i.kind,op.id,generation))fail('REQUEST_INTERRUPTED');const requestId=randomUUID();db.run("INSERT INTO operation_requests(request_id,kind,status,payload_hash,created_at,result_reference,operator_id,generation) VALUES(?,?,'pending',?,?,'prepared',?,?)",requestId,i.kind,hash,this.instant(),op.id,generation);return {requestId};},{financial:i.kind!=='financial.recover',admin:i.kind==='financial.recover'&&this.database.installationState().status==='ready_for_setup'}),
+   'operations.acknowledge':i=>this.query(owner,(db,op)=>{const r=db.get('SELECT operator_id,generation,status,kind,result_json,completed_at FROM operation_requests WHERE request_id=?',i.requestId);if(!r||r.operator_id!==op.id||r.generation!==this.database.installationState().generation||r.status!=='committed')fail('FORBIDDEN');if(r.kind==='sales.complete'){const draft=db.get('SELECT items_json,updated_at FROM native_drafts WHERE operator_id=? AND generation=?',op.id,this.database.installationState().generation);const sale=JSON.parse(String(r.result_json)) as Sale;if(draft&&String(draft.updated_at)<=String(r.completed_at)){const items=JSON.parse(String(draft.items_json)) as Array<{product:{id:string};quantity:number}>;if(items.length===sale.items.length&&items.every((item,index)=>item.product.id===sale.items[index].productId&&item.quantity===sale.items[index].quantity))db.run('DELETE FROM native_drafts WHERE operator_id=? AND generation=?',op.id,this.database.installationState().generation);}}db.run("UPDATE operation_requests SET result_reference='acknowledged' WHERE request_id=?",i.requestId);return null;}),
    'operations.discardPrepared':i=>this.query(owner,(db,op)=>{const r=db.get('SELECT * FROM operation_requests WHERE request_id=?',i.requestId);if(!r||r.operator_id!==op.id||r.generation!==this.database.installationState().generation||r.status!=='pending'||r.result_reference!=='prepared'||db.get('SELECT id FROM customer_credit_reservations WHERE operation_request_id=?',i.requestId))fail('FORBIDDEN');db.run("UPDATE operation_requests SET status='interrupted',result_reference='acknowledged' WHERE request_id=?",i.requestId);return null;},{recent:true}),
    'operations.list':()=>this.query(owner,(db,op)=>db.all("SELECT request_id,kind,status,created_at FROM operation_requests WHERE operator_id=? AND generation=? AND coalesce(result_reference,'')<>'acknowledged' ORDER BY created_at",op.id,this.database.installationState().generation).map(r=>({requestId:String(r.request_id),kind:String(r.kind),status:String(r.status),createdAt:String(r.created_at)}))),
    'operations.read':i=>this.query(owner,(db,op)=>{const r=db.get('SELECT * FROM operation_requests WHERE request_id=?',i.requestId);if(!r)return {status:'unknown'};if(r.operator_id!==op.id||r.generation!==this.database.installationState().generation)fail('FORBIDDEN');return r.status==='committed'?{status:'committed',result:JSON.parse(String(r.result_json))}:r.status==='pending'&&r.result_reference==='prepared'?{status:'prepared'}:{status:'interrupted'};}),
-   'draft.read':()=>this.query(owner,()=>structuredClone(this.drafts.get(owner)??[])),
-   'draft.save':i=>this.query(owner,()=>{this.drafts.set(owner,structuredClone(i.items));return null;}),
+   'draft.read':()=>this.query(owner,(db,op)=>{const row=db.get('SELECT items_json FROM native_drafts WHERE operator_id=? AND generation=?',op.id,this.database.installationState().generation);if(!row)return [];const items=JSON.parse(String(row.items_json)) as CartItem[];const catalog=read.products(db);return items.flatMap(item=>{const product=catalog.find(p=>p.id===item.product.id&&p.active);return product?[{product,quantity:item.quantity,unitPriceInCents:product.priceInCents,subtotalInCents:multiplyMoney(product.priceInCents,item.quantity)}]:[];});}),
+   'draft.save':i=>this.query(owner,(db,op)=>{db.run('INSERT INTO native_drafts VALUES(?,?,?,?) ON CONFLICT(operator_id,generation) DO UPDATE SET items_json=excluded.items_json,updated_at=excluded.updated_at',op.id,this.database.installationState().generation,JSON.stringify(i.items.map(item=>({product:{id:item.product.id},quantity:item.quantity}))),this.instant());return null;}),
   };
-  return handlers[name](p);
+  const handler=handlers[name];if(!handler)fail('UNSUPPORTED_OPERATION');return handler(p);
  }
  private query<T>(owner:number,work:(db:TransactionContext,operator:CashOperator)=>T,options:Parameters<BackendAuth['authorize']>[2]={}){return this.database.transaction(db=>{const {operator}=this.auth.authorize(db,owner,options);return work(db,operator);});}
 }

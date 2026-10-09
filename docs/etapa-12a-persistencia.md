@@ -166,3 +166,10 @@ A 12A termina com o navegador usando o adaptador web e dados compatíveis. Não 
 ## Evolução controlada das portas na 12C.2
 
 O [backend Electron](etapa-12c-2-backend-sqlite.md) implementa as portas financeiras por IPC de domínio. CommandOptions/requestId é opcional para preservar o web; o Electron mantém intenção durável e mesmo ID após timeout/restart. Operadores podem oferecer reauthenticate; o transporte nativo usa hasPassword e créditos públicos sem hash. Emissões distinguem código web de comprovante impresso no main. requiresAuthenticatedReads permite apresentar login sem consultas privadas antes de autenticar. operations é capacidade opcional para conferir/reconhecer/descarte de intenções sem efeitos; não limpa dados comerciais. Portas nativas de backup/limpeza declaram indisponibilidade até 12C.3, sem fallback ao armazenamento web. A composição default não foi alterada.
+
+
+## Evolução dos contratos na 12C.3
+
+`PdvRepositories.desktop` é capacidade opcional tipada por `LifecycleOperations`. Navegador não implementa essa capacidade. Electron publica operações de estado/setup/ativação/preparação, backup criar/verificar/restaurar, importação preview/aplicação e recuperação de comprovante legado. Os inputs não contêm caminhos internos, SQL, generation ou afirmação de permissão; o main seleciona arquivos e verifica administrador/reautenticação. `LifecycleStatus` informa estado/geração e resumo público de dados de teste.
+
+Os contratos financeiros existentes continuam operações completas transacionais no SQLite. Preparação de requests ocorre antes do envio, recovery mantém identidade/autor e ack não compensa finanças. Rascunho native é por operador/geração. Backups JSON web continuam intactos; no Electron, ferramentas efetivas usam a capacidade nativa, não `backups.exportJson/import` (essas portas web no adaptador nativo rejeitam uso para impedir fallback). A composição da aplicação seleciona transporte sem condicionais financeiras por componente. Detalhes e limitações no [relatório 12C.3](etapa-12c-3-ativacao-sqlite.md).

@@ -1,3 +1,4 @@
+import {DesktopInstallation,ReauthenticationDialog,OperationRecovery} from './components/DesktopManagement';
 import { ApplicationContext, usePdvApplication, webApplication } from './application/context';
 import type { PdvApplication } from './application/createPdvApplication';
 import { getOpenCashSession, getPendingCashSessions } from './domain/cashSessions';
@@ -19,8 +20,9 @@ import type { AppPage } from './types/navigation';
 import type { CashPaymentTotals } from './utils/cash';
 
 export function App({ application = webApplication }: { application?: PdvApplication } = {}) {
-  return <ApplicationContext.Provider value={application}><PdvApp /></ApplicationContext.Provider>;
+  return <ApplicationContext.Provider value={application}>{application.desktop?<DesktopHost application={application}/>:<PdvApp />}</ApplicationContext.Provider>;
 }
+function DesktopHost({application}:{application:PdvApplication}){const [ready,setReady]=useState(false);const onReady=useRef(()=>setReady(true));return <><ReauthenticationDialog/>{ready?<PdvApp/>:<DesktopInstallation application={application} onReady={onReady.current}/>}</>;}
 function PdvApp() {
   const application = usePdvApplication();
   const [booting, setBooting] = useState(true);
@@ -68,8 +70,9 @@ function PdvApp() {
     void initialize();
     const unsubscribe = application.changes.subscribe(['cash', 'settings', 'operator'], () => { void refresh(); });
     const unsubscribeProducts = application.changes.subscribe(['products'], () => { void refreshProducts(); });
+    const unsubscribeRecovery=application.desktop?application.changes.subscribe(['draft'],()=>setAttempt(value=>value+1)):()=>{};
     const timer = window.setInterval(() => { void refresh(); }, 1000);
-    return () => { active = false; ++contextRevision.current; unsubscribe(); unsubscribeProducts(); window.clearInterval(timer); };
+    return () => { active = false; ++contextRevision.current; unsubscribe(); unsubscribeProducts(); unsubscribeRecovery();window.clearInterval(timer); };
   }, [application, attempt]);
 
   async function recoverFinancialData() {
@@ -120,7 +123,7 @@ function PdvApp() {
   if (recovering) return <main className="content"><p role="status">Conferindo registros financeiros…</p></main>;
   const openSession = getOpenCashSession(cashData);
   const ownedSession = openSession?.operatorId === operator.id ? openSession : undefined;
-  const withCashContext = (page: ReactNode) => <>{recoveryError && <div className="cash-error" role="alert">Recuperação financeira pendente: {recoveryError} <button type="button" disabled={recovering} onClick={() => void recoverFinancialData()}>Tentar recuperar</button></div>}<aside className="active-operator-strip" aria-label="Caixa e operador atuais">{openSession ? <><b>{cashLabel(openSession)}</b><span>Entrada: {new Date(openSession.openedAt).toLocaleString('pt-BR')}</span></> : <b>{getPendingCashSessions(cashData).length ? 'Caixa anterior pendente de fechamento · entre em Caixa para continuar' : 'Sem caixa aberto hoje · selecione o operador em Caixa'}</b>}<span>Conectado: {operator.username ?? operator.name} <button type="button" onClick={() => { void application.operators.logout().then(() => { ++contextRevision.current; setOperator(null); }).catch((failure: unknown) => setRecoveryError(failure instanceof Error ? failure.message : 'Não foi possível sair.')); }}>Sair / trocar operador</button></span></aside>{page}</>;
+  const withCashContext = (page: ReactNode) => <>{application.operations&&<OperationRecovery application={application}/>}{recoveryError && <div className="cash-error" role="alert">Recuperação financeira pendente: {recoveryError} <button type="button" disabled={recovering} onClick={() => void recoverFinancialData()}>Tentar recuperar</button></div>}<aside className="active-operator-strip" aria-label="Caixa e operador atuais">{openSession ? <><b>{cashLabel(openSession)}</b><span>Entrada: {new Date(openSession.openedAt).toLocaleString('pt-BR')}</span></> : <b>{getPendingCashSessions(cashData).length ? 'Caixa anterior pendente de fechamento · entre em Caixa para continuar' : 'Sem caixa aberto hoje · selecione o operador em Caixa'}</b>}<span>Conectado: {operator.username ?? operator.name} <button type="button" onClick={() => { void application.operators.logout().then(() => { ++contextRevision.current; setOperator(null); }).catch((failure: unknown) => setRecoveryError(failure instanceof Error ? failure.message : 'Não foi possível sair.')); }}>Sair / trocar operador</button></span></aside>{page}</>;
   if (activePage === 'home') return withCashContext(<DashboardPage cashData={cashData} onNavigate={setActivePage} />);
   if (activePage === 'products') return withCashContext(<ProductsPage onNavigate={setActivePage} onProductsChange={updateProducts} products={products} />);
   if (activePage === 'settings') return withCashContext(operator.role === 'admin' ? <SettingsPage onClearLocalData={resetLocalData} onNavigate={setActivePage} onSaveSettings={updateSettings} settings={settings} /> : <main className="content"><h1>Acesso do administrador</h1><p>Somente Admin pode alterar configurações e cadastrar operadores.</p><button className="btn secondary" onClick={() => setActivePage('cash')}>Voltar ao caixa</button></main>);

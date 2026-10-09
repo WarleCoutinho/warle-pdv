@@ -179,3 +179,12 @@ Migration 1 permanece publicada/imutável. Migration 2 acrescenta autoria/genera
 Requests preparados guardam somente hash de intenção, sem efeito financeiro/segredo. Prepare/execute/read/acknowledge/discardPrepared permitem recuperar resultados perdidos sem gerar novo ID. Troca de payload com resultado incerto bloqueia nova tentativa até conferência explícita. Descarte não exclui registros e só aceita intenção preparada sem reserva ou confirmação.
 
 A migração 12C.3 deve preservar backups web v1/v2 e formatos históricos, principalmente lineId ausente, autoria opcional, recebimentos cancelados e snapshots sem campos v2. O mapper SQL moderno não substitui o importador/mapeamento de fechamento legado. Importar verifier de crédito não permite inventar código secreto de reimpressão; DPAPI não substitui backup portátil. Preparação oficial, geração nova, reinicialização autorizada de dados fictícios e sequência, backup consistente externo e ativação continuam exclusivamente planejados.
+
+
+## Implementação da Etapa 12C.3
+
+Electron normal passa a SQLite único por composição confiável; navegador conserva adaptador web. A migration 3 aditiva traz `installation_id` único por instalação (32 hex), `installation_audit` (PK UUID, tipo/geração/data/JSON técnico), `native_drafts` (PK operador+geração, FK operador), `legacy_records` (PK tipo+ID, JSON original) e `sale_items.legacy_line`. Migrations 1/2 não mudam. Request e geração são a fronteira de idempotência; nova geração exige intenção preparada no main. Valores financeiros continuam INTEGER, incluindo líquidos eletrônicos negativos. Snapshots históricos não são recalculados.
+
+Backup usa API online SQLite, manifesto SHA-256 e payload AES-GCM derivado por scrypt; DPAPI é custódia local, não formato portátil. Restauração verifica em perfil isolado e usa fechamento/bloqueio, journal durável e anterior preservado. Importação v1/v2 aplica todos os agregados em transação, preserva JSON legado e valida contagens/totais; não faz merge. Setup e preparação são commits completos e auditáveis. Limpeza testing restaura triggers dentro da mesma transação, incrementa geração e reinicia sequência; produção bloqueia reset comum.
+
+Consulte [12C.3: arquitetura, evidências e procedimentos](etapa-12c-3-ativacao-sqlite.md). Não excluir WAL ou substituir banco aberto. Próximas etapas de empacotamento/instalador não foram iniciadas.

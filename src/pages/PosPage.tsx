@@ -62,6 +62,7 @@ export function PosPage({ onNavigate, products, settings, cashSessionId, cashSes
   const application = usePdvApplication();
   const initialProducts = useRef(products);
   const [cartLoadAttempt, setCartLoadAttempt] = useState(0);
+  const [resumedDraft,setResumedDraft]=useState(false);
   const [cartReady, setCartReady] = useState(false);
   const [cartError, setCartError] = useState<string | null>(null);
   const skipHydratedSave = useRef(true);
@@ -92,7 +93,7 @@ export function PosPage({ onNavigate, products, settings, cashSessionId, cashSes
   useEffect(() => {
     let active = true; setCartError(null);
     void application.draft.load(initialProducts.current).then((items) => {
-      if (!active) return; dispatch({ type: 'hydrate', items }); setCartReady(true);
+      if (!active) return; dispatch({ type: 'hydrate', items }); setResumedDraft(!!application.desktop&&items.length>0);setCartReady(true);
     }).catch((failure: unknown) => { if (active) setCartError(failure instanceof Error ? failure.message : 'Não foi possível recuperar o carrinho.'); });
     return () => { active = false; };
   }, [application, cartLoadAttempt]);
@@ -160,7 +161,7 @@ export function PosPage({ onNavigate, products, settings, cashSessionId, cashSes
     <div className="shell pos-shell">
       <div className="main pos-main">
         <main className="content pos-content">
-          <PosHeader onNavigate={onNavigate} />
+          <PosHeader onNavigate={onNavigate} />{resumedDraft&&cart.length>0&&<p role="status" className="cash-error">Carrinho retomado com produtos e preços atuais. Confira os itens antes de concluir; você pode limpar o carrinho para descartá-lo.</p>}
           <div className="title-row">
             <div>
               <h1>Nova venda</h1>

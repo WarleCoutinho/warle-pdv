@@ -1,10 +1,11 @@
 import { createHash } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
 import { INITIAL_SCHEMA } from './schema.cjs';
+import { LIFECYCLE_SCHEMA } from './lifecycle-schema.cjs';
 import { OPERATIONAL_SCHEMA } from './operational-schema.cjs';
 import { DatabaseFailure, databaseFailure } from './errors.cjs';
 export interface Migration { readonly version: number; readonly sql: string; }
-export const MIGRATIONS: readonly Migration[] = Object.freeze([Object.freeze({ version: 1, sql: INITIAL_SCHEMA }), Object.freeze({ version: 2, sql: OPERATIONAL_SCHEMA })]);
+export const MIGRATIONS: readonly Migration[] = Object.freeze([Object.freeze({ version: 1, sql: INITIAL_SCHEMA }), Object.freeze({ version: 2, sql: OPERATIONAL_SCHEMA }), Object.freeze({ version: 3, sql: LIFECYCLE_SCHEMA })]);
 export const MIGRATION_TABLE = `CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY CHECK(version>0), applied_at TEXT NOT NULL, migration_digest TEXT NOT NULL CHECK(length(migration_digest)=64)) STRICT`;
 export const digest = (text: string) => createHash('sha256').update(text, 'utf8').digest('hex');
 export function validateMigrations(db: DatabaseSync, migrations: readonly Migration[]) {

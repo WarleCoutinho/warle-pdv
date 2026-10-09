@@ -1,9 +1,10 @@
 import { DatabaseFailure } from './errors.cjs';
 export type InstallationStatus = 'testing' | 'ready_for_setup' | 'production';
-export interface InstallationState { id: 1; status: InstallationStatus; created_at: string; activated_at: string | null; generation: number; }
+export interface InstallationState { installation_id?:string; id: 1; status: InstallationStatus; created_at: string; activated_at: string | null; generation: number; }
 export function parseInstallationState(rows: Record<string, unknown>[]): InstallationState {
   const value = rows[0];
   if (rows.length !== 1 || value?.id !== 1 || !['testing','ready_for_setup','production'].includes(String(value.status)) || !Number.isSafeInteger(value.generation) || Number(value.generation)<1 || typeof value.created_at !== 'string' || !validUtc(value.created_at) || (value.status === 'production' ? typeof value.activated_at !== 'string' || !validUtc(value.activated_at) : value.activated_at !== null)) throw new DatabaseFailure('INSTALLATION_STATE_INVALID');
+  if(Object.hasOwn(value,'installation_id')&&(typeof value.installation_id!=='string'||!/^[a-f0-9]{32}$/.test(value.installation_id)))throw new DatabaseFailure('INSTALLATION_STATE_INVALID');
   return Object.freeze({ ...value }) as unknown as InstallationState;
 }
 export function validUtc(value: string) { try { return new Date(value).toISOString() === value; } catch { return false; } }

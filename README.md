@@ -119,7 +119,7 @@ npm run test:desktop
 
 `dev:desktop` compila main/preload e usa Vite em `http://127.0.0.1:5173/`, iniciando o servidor quando necessário. Alterações React usam HMR; alterações em main/preload exigem reiniciar o comando. `start:desktop` usa somente os arquivos compilados, pelo protocolo local `raiz://app`, sem servidor Vite. `test:desktop:production` verifica o build local sem depender do servidor web. `test:all` e a parte web de `test:desktop` exigem `npm run dev` disponível na porta 5173.
 
-No Windows, o perfil Electron fica em `%APPDATA%\Raiz PDV`. Desenvolvimento e build local usam partições distintas. Os dados do navegador são independentes: esta etapa não copia nem sincroniza vendas entre os ambientes. Ambos usam os contratos e o adaptador web da Etapa 12A, com as mesmas chaves e formatos. Sessões de operadores continuam temporárias.
+No Windows, o perfil Electron fica em `%APPDATA%\Raiz PDV`. Desenvolvimento e build local usam partições distintas. Os dados do navegador são independentes: esta etapa não copia nem sincroniza vendas entre os ambientes. Na entrega da 12B, ambos usavam os contratos e o adaptador web da Etapa 12A, com as mesmas chaves e formatos. Sessões de operadores continuam temporárias.
 
 A janela mantém sandbox, isolamento de contexto e Node desabilitado no renderer. Na entrega da 12B, a API pública era `window.raizDesktop?.getAppInfo()`, com nome, versão e ambiente. A ampliação por comandos de domínio está descrita na 12C.2 abaixo; SQL e filesystem genéricos permanecem proibidos. Veja o diagnóstico, as garantias e os testes no [relatório da Etapa 12B](docs/etapa-12b-electron.md).
 
@@ -147,6 +147,15 @@ O estado SQLite começa em `testing`, geração 1. Ele não cria administrador a
 
 O backend agora implementa autenticação, catálogo/configuração, vendas, caixa, devoluções, reembolsos, créditos e recuperação por comandos transacionais, com autoria, geração e idempotência durável. A API `window.raizDesktop.pdv` contém somente operações explícitas e validadas; não oferece SQL ou filesystem genéricos. Verificadores e códigos não são devolvidos ao renderer operacional. Comprovantes de crédito usam impressão controlada no main e proteção DPAPI no Windows.
 
-**O aplicativo normal continua usando o adaptador web.** O transporte SQLite exige validação manual não empacotada, perfil de teste explícito e `--raiz-sqlite-validation`; esse flag não seleciona o adaptador nem ativa a instalação. Não existe administrador nativo criado automaticamente. Cadastro inicial/ativação/importação oficial pertencem à 12C.3.
+**Na entrega da 12C.2, o aplicativo normal continuava usando o adaptador web; a 12C.3 abaixo substitui essa composição no Electron.** O transporte SQLite exige validação manual não empacotada, perfil de teste explícito e `--raiz-sqlite-validation`; esse flag não seleciona o adaptador nem ativa a instalação. Não existe administrador nativo criado automaticamente. Cadastro inicial/ativação/importação oficial pertencem à 12C.3.
 
 `npm run test:sqlite` inclui conformidade web/SQLite, concorrência com conexões reais, falhas/restart/timeout e autorização. `npm run test:desktop` também monta uma composição Electron explícita apenas numa cópia temporária, executa venda pela interface e verifica o comprovante isolado com DPAPI/PDF. Veja os comandos, contratos, limites e requisitos de migração no [relatório 12C.2](docs/etapa-12c-2-backend-sqlite.md).
+
+
+## Etapa 12C.3 — SQLite operacional, migração e ativação
+
+O Electron normal utiliza SQLite exclusivamente; navegador mantém web. Não é necessário flag de validação. Instalação nova abre assistente com estabelecimento e administrador/senha explícitos, sem credencial padrão. Importação JSON web v1/v2 é explícita, transacional e conferida; não acessa perfil externo de navegador.
+
+Configurações oferece backup nativo cifrado, verificação por recuperação isolada e restauração com cópia preventiva. Guarde a senha de recuperação separada do arquivo. Créditos são protegidos novamente no destino; código legado exige o original do cliente. Produção bloqueia limpeza comum. Em Testes, “Preparar para uso oficial” exige mestre, senha recente, backup externo recuperável, frase e duas confirmações; gera instalação nova, exige cadastro e reinicia venda em 1.
+
+Leia o [relatório e guia do administrador da 12C.3](docs/etapa-12c-3-ativacao-sqlite.md) antes de migrar ou restaurar. Dados reais não foram usados nos ensaios; impressão física e outro usuário Windows ainda exigem homologação no equipamento. Os mesmos comandos de build/teste acima permanecem válidos; `test:desktop` inclui o ciclo real de setup/migração/restauração/preparação.

@@ -15,17 +15,17 @@ async function state(file) {const db=new DatabaseSync(file,{readOnly:true});try{
 (async()=>{
  const profile=temp();const production=join(profile,'data','raiz-pdv.sqlite');let desktop;
  try{
-  desktop=await launch(profile);await (await desktop.firstWindow()).getByRole('heading',{name:'Entrar no Raiz PDV'}).waitFor();assert.ok(existsSync(production));const before=await state(production);
+  desktop=await launch(profile);await (await desktop.firstWindow()).getByRole('heading',{name:'Configurar Raiz PDV'}).waitFor();assert.ok(existsSync(production));const before=await state(production);
   const secondResult=await new Promise((resolveResult,reject)=>{
    const child=spawn(executable,[root,'--raiz-profile='+profile],{env,windowsHide:true,stdio:['ignore','ignore','pipe']});let stderr='';child.stderr.on('data',data=>stderr+=data);
    const timer=setTimeout(()=>{child.kill();reject(Error('SECOND_INSTANCE_NOT_BLOCKED'));},10000);
    child.on('error',error=>{clearTimeout(timer);reject(error);});child.on('exit',code=>{clearTimeout(timer);resolveResult({code,stderr});});
   });assert.equal(secondResult.code,0);assert.match(secondResult.stderr,/INSTANCE_ALREADY_RUNNING/);assert.deepEqual(await state(production),before);
   const otherProfile=temp();const other=await launch(otherProfile);
-  try{await (await other.firstWindow()).getByRole('heading',{name:'Entrar no Raiz PDV'}).waitFor();assert.ok(existsSync(join(otherProfile,'data','raiz-pdv.sqlite')));}finally{await other.close();}
+  try{await (await other.firstWindow()).getByRole('heading',{name:'Configurar Raiz PDV'}).waitFor();assert.ok(existsSync(join(otherProfile,'data','raiz-pdv.sqlite')));}finally{await other.close();}
   await desktop.close();desktop=null;
   desktop=await electron.launch({args:[root,'--raiz-profile='+profile],env:{...env,RAIZ_DESKTOP_DEV_URL:'http://127.0.0.1:5173/'},timeout:20000});
-  await (await desktop.firstWindow()).getByRole('heading',{name:'Entrar no Raiz PDV'}).waitFor();const development=join(profile,'data','development','raiz-pdv.sqlite');assert.ok(existsSync(development));assert.deepEqual(await state(production),before);await desktop.close();desktop=null;
+  await (await desktop.firstWindow()).getByRole('heading',{name:'Configurar Raiz PDV'}).waitFor();const development=join(profile,'data','development','raiz-pdv.sqlite');assert.ok(existsSync(development));assert.deepEqual(await state(production),before);await desktop.close();desktop=null;
   console.log('PASS SQLite desktop: main real, instância única por perfil, perfis distintos simultâneos e arquivos dev/produção separados.');
  }finally{if(desktop)await desktop.close();}
  for(const mode of ['corrupt','inaccessible']){

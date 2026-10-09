@@ -19,7 +19,7 @@ export function products(db:Reader):Product[] {
 }
 export function sales(db:Reader):Sale[] {
   return db.all('SELECT s.*,c.cancelled_at,c.reason,c.note FROM sales s LEFT JOIN sale_cancellations c ON c.sale_id=s.id ORDER BY s.number DESC').map(r=>({id:String(r.id),number:Number(r.number),date:String(r.occurred_at),...optional('cashSessionId',r.cash_session_id as string|null),status:r.status as Sale['status'],totalInCents:Number(r.total_cents),...optional('cancelledAt',r.cancelled_at as string|null),...optional('cancellationReason',r.reason as Sale['cancellationReason']),...optional('cancellationNote',r.note as string|null),
-    items:db.all('SELECT * FROM sale_items WHERE sale_id=? ORDER BY position',String(r.id)).map(i=>({lineId:String(i.line_id),productId:String(i.product_id),productName:String(i.product_name_snapshot),unitPriceInCents:Number(i.unit_price_cents),quantity:Number(i.quantity),subtotalInCents:Number(i.subtotal_cents)})),
+    items:db.all('SELECT * FROM sale_items WHERE sale_id=? ORDER BY position',String(r.id)).map(i=>({...(i.legacy_line===1?{}:{lineId:String(i.line_id)}),productId:String(i.product_id),productName:String(i.product_name_snapshot),unitPriceInCents:Number(i.unit_price_cents),quantity:Number(i.quantity),subtotalInCents:Number(i.subtotal_cents)})),
     payments:db.all('SELECT * FROM sale_payments WHERE sale_id=? ORDER BY position',String(r.id)).map(p=>({method:p.method as Sale['payments'][number]['method'],amountInCents:Number(p.amount_cents),...(p.method==='cash'?{amountReceivedInCents:Number(p.received_cents),changeInCents:Number(p.change_cents)}:{}),...optional('customerCreditId',p.credit_id as string|null),...optional('capturedAt',p.captured_at as string|null)}))}));
 }
 export function credit(r:Record<string,unknown>):CustomerCredit {return {id:String(r.id),receiptNumber:String(r.receipt_number),originalSaleId:String(r.original_sale_id),originalSaleNumber:Number(r.original_sale_number),issuedAt:String(r.issued_at),originalAmountInCents:Number(r.original_cents),balanceInCents:Number(r.balance_cents),status:r.status as CustomerCredit['status'],...optional('issuingCashSessionId',r.issuing_cash_session_id as string|null)};}
@@ -36,6 +36,9 @@ export function cash(db:Reader):CashData {
  return {movements:db.all('SELECT * FROM cash_movements ORDER BY occurred_at,id').map(r=>({id:String(r.id),cashSessionId:String(r.cash_session_id),type:r.type as 'supply'|'withdrawal',amountInCents:Number(r.amount_cents),...optional('description',r.description as string|null),createdAt:String(r.occurred_at)})),sessions:db.all('SELECT * FROM cash_sessions ORDER BY opened_at,id').map(r=>{
   const snapshot=db.get('SELECT * FROM cash_reconciliation_snapshots WHERE cash_session_id=?',String(r.id));
   let reconciliation:CashReconciliation|undefined;
+  if(snapshot?.legacy_snapshot_json)return JSON.parse(String(snapshot.legacy_snapshot_json));
+  const original=db.get("SELECT original_json FROM legacy_records WHERE kind='cash_session' AND id=?",String(r.id));
+  if(!snapshot&&r.status==='closed'&&original)return JSON.parse(String(original.original_json));
   if(snapshot){
    const methods={} as CashReconciliation['methods'],received={} as CashReconciliation['paymentTotalsInCents'],refunded={} as CashReconciliation['paymentTotalsInCents'];
    const rows=db.all('SELECT * FROM cash_reconciliation_methods WHERE cash_session_id=?',String(r.id));

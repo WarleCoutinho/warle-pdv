@@ -121,7 +121,7 @@ function checksum(value: string): string { let hash = 0x811c9dc5; for (let index
 function isRecord(value: unknown): value is Record<string, any> { return typeof value === 'object' && value !== null && !Array.isArray(value); }
 function hasExactKeys(value: Record<string, unknown>, expected: string[]): boolean { return Object.keys(value).length === expected.length && expected.every((key) => Object.hasOwn(value, key)); }
 /** Validate relationships before any restore writes, without reconstructing legacy events. */
-function validateFinancialRelations(data: BackupData): void {
+export function validateFinancialRelations(data: BackupData): void {
   const { financial, sales, cash } = data;
   const fail = () => { throw new Error('As relações dos registros financeiros do backup são inválidas.'); };
   if (new Set(sales.map((sale) => sale.id)).size !== sales.length || new Set(sales.map((sale) => sale.number)).size !== sales.length) fail();

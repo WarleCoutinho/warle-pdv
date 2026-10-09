@@ -1,4 +1,17 @@
 const messages:Record<string,string>={
+ DATABASE_VERSION_INCOMPATIBLE:'O banco ou backup pertence a uma versão incompatível. Preserve os arquivos e atualize o aplicativo ou procure suporte.',
+ DATABASE_CORRUPT:'Há uma inconsistência no banco. Preserve o perfil e os backups; procure suporte antes de continuar.',
+ DATABASE_SCHEMA_MISMATCH:'A estrutura do banco diverge da versão esperada. A operação foi bloqueada para preservar os dados.',
+ BACKUP_INVALID:'O backup ou a senha de recuperação é inválido. O banco atual foi preservado.',
+ BACKUP_SECRET_INVALID:'Use uma senha de recuperação de 12 a 128 caracteres.',
+ BACKUP_DESTINATION_INVALID:'Escolha um arquivo externo ao perfil do Raiz PDV, em uma pasta com permissão de escrita.',
+ BACKUP_REQUIRED:'Crie primeiro um backup externo verificado e recuperável.',
+ BACKUP_STALE:'Os dados mudaram desde o backup. Crie uma nova cópia antes de continuar.',
+ IMPORT_INVALID:'O arquivo tem dados inválidos ou relações legadas ambíguas. Nada foi importado. Preserve a origem para auditoria.',
+ IMPORT_CONFLICT:'A instalação já contém registros. Não é permitido misturar duas bases.',
+ IMPORT_DIVERGENCE:'A conferência encontrou divergência. A importação foi revertida.',
+ RESTORE_BLOCKED:'A restauração foi bloqueada para proteger identidade, geração ou produção. Preserve os arquivos e procure suporte.',
+ CONFIRMATION_REQUIRED:'A operação exige confirmação explícita.',
  UNAUTHORIZED:'Entre novamente com seu operador e senha.',
  AUTHENTICATION_FAILED:'Operador, senha ou código de autorização incorreto.',
  FORBIDDEN:'Seu operador não tem permissão para esta operação.',
@@ -22,4 +35,4 @@ const messages:Record<string,string>={
 export class DesktopPersistenceError extends Error {
  constructor(readonly code:string,readonly requestId?:string){super(messages[code]??'Não foi possível receber a confirmação. A operação pode já ter sido registrada. Tente novamente para recuperar o mesmo resultado.');this.name='DesktopPersistenceError';}
 }
-export function desktopFailure(error:unknown,requestId?:string){if(error instanceof DesktopPersistenceError)return error;const code=error instanceof Error&&/^[A-Z_]{1,64}$/.test(error.message)?error.message:'COMMUNICATION_FAILED';return new DesktopPersistenceError(code,requestId);}
+export function desktopFailure(error:unknown,requestId?:string){if(error instanceof DesktopPersistenceError)return requestId&&!error.requestId?new DesktopPersistenceError(error.code,requestId):error;const code=error instanceof Error&&/^[A-Z_]{1,64}$/.test(error.message)?error.message:'COMMUNICATION_FAILED';return new DesktopPersistenceError(code,requestId);}

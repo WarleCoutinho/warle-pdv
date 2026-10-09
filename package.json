@@ -16,7 +16,7 @@
     "build:desktop": "npm run build && npm run build:electron",
     "typecheck": "tsc -b && tsc -p tsconfig.electron.json --noEmit",
     "start:desktop": "electron .",
-    "test:desktop": "npm run build:desktop && node tests/electron-smoke.cjs && node tests/desktop-launcher.cjs && node tests/electron-startup.cjs && node tests/sqlite-desktop.cjs && node tests/sqlite-operational-desktop.cjs",
+    "test:desktop": "npm run build:desktop && node tests/electron-smoke.cjs && node tests/desktop-launcher.cjs && node tests/electron-startup.cjs && node tests/sqlite-desktop.cjs && node tests/sqlite-operational-desktop.cjs && node tests/sqlite-lifecycle-desktop.cjs",
     "test:desktop:production": "npm run build:desktop && node tests/electron-smoke.cjs --production-only",
     "test:sqlite": "npm run build:electron && node scripts/test-sqlite.mjs"
   },

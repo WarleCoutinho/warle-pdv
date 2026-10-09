@@ -1,4 +1,4 @@
-import { DatabaseSync } from 'node:sqlite';
+import { DatabaseSync, backup } from 'node:sqlite';
 import type { SQLInputValue } from 'node:sqlite';
 import { mkdirSync, existsSync, lstatSync } from 'node:fs';
 import { dirname } from 'node:path';
@@ -151,5 +151,7 @@ export class SqliteFoundation {
       return JSON.parse(serialized) as JsonValue;
     });
   }
+  async backupTo(destination:string) { this.#assertAvailable(); if(this.#running)throw new DatabaseFailure('TRANSACTION_NESTED'); await backup(this.#db,destination); }
+  closeForReplacement(validate?:()=>void){this.#assertAvailable();if(this.#running)throw new DatabaseFailure('TRANSACTION_NESTED');try{this.#db.exec('PRAGMA locking_mode=EXCLUSIVE');this.#db.exec('BEGIN EXCLUSIVE');this.#db.exec('COMMIT');const checkpoint=this.#db.prepare('PRAGMA wal_checkpoint(TRUNCATE)').get();if(Number(checkpoint?.busy)!==0)throw new DatabaseFailure('DATABASE_BUSY');validate?.();this.close();}catch(error){if(this.#db.isTransaction)this.#db.exec('ROLLBACK');if(!this.#closed)this.#db.exec('PRAGMA locking_mode=NORMAL');throw databaseFailure(error);}}
   close() { if (this.#running) throw new DatabaseFailure('TRANSACTION_NESTED'); if (!this.#closed) { this.#db.close(); this.#closed=true; } }
 }

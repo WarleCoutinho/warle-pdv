@@ -1,3 +1,4 @@
+import {DesktopTools} from '../components/DesktopManagement';
 import { usePdvApplication } from '../application/context';
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react';
 import { AppPageTopBar } from '../components/AppPageTopBar';
@@ -145,6 +146,7 @@ export function SettingsPage({ settings, onNavigate, onSaveSettings, onClearLoca
           <div className="settings-receipt-preview"><span>Prévia do rodapé</span>{draft.receiptFooter ? <b>{draft.receiptFooter}</b> : <small>Sem mensagem no rodapé</small>}</div>
         </section>
 
+        {application.desktop?<DesktopTools application={application} onChanged={()=>window.location.reload()}/>:<>
         <section aria-labelledby="settings-backup-title" className="settings-card settings-backup-card">
           <div className="settings-card-heading"><span aria-hidden="true">⇧</span><div><h2 id="settings-backup-title">Backup e restauração</h2><p>Exporte seus dados para guardar uma cópia ou restaure um arquivo de backup validado.</p></div></div>
           <div className="settings-backup-actions">
@@ -169,6 +171,7 @@ export function SettingsPage({ settings, onNavigate, onSaveSettings, onClearLoca
           </div>
         </section>
 
+        </>}
         <div className="settings-actions"><button className="btn primary" disabled={saving} type="submit">{saving ? "Salvando…" : "Salvar alterações"}</button></div>
       </form>
 

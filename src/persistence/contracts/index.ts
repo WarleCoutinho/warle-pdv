@@ -1,3 +1,4 @@
+import type {LifecycleOperations} from '../../../electron/shared/lifecycle';
 import type { Product, CartItem } from '../../types/product';
 import type { StoreSettings, CashOperator } from '../../types/settings';
 import type { Sale, SaleCancellationReason } from '../../types/sale';
@@ -27,4 +28,5 @@ export interface BackupRepository { exportJson(): Promise<string>; validateJson(
 export interface OperationRecoveryRepository { list():Promise<Array<{requestId:string;kind:string;status:string;createdAt:string}>>; read(requestId:string):Promise<{status:'unknown'|'prepared'|'committed'|'interrupted';result?:unknown}>; discardPrepared(requestId:string):Promise<void>; acknowledge(requestId:string):Promise<void>; }
 export type ChangeTopic = 'products' | 'settings' | 'operator' | 'cash' | 'sales' | 'financial' | 'draft';
 export interface ChangeSubscription { subscribe(topics: readonly ChangeTopic[], listener: () => void): () => void; }
-export interface PdvRepositories { requiresAuthenticatedReads?: boolean; operations?:OperationRecoveryRepository; products: ProductRepository; settings: SettingsRepository; operators: OperatorRepository; sales: SaleRepository; cash: CashRepository; financial: FinancialRepository; credits: CustomerCreditRepository; draft: DraftRepository; backups: BackupRepository; changes: ChangeSubscription; }
+export type DesktopManagement={readonly [K in keyof LifecycleOperations]:(input:LifecycleOperations[K]['input'])=>Promise<LifecycleOperations[K]['output']>};
+export interface PdvRepositories { desktop?:DesktopManagement; requiresAuthenticatedReads?: boolean; operations?:OperationRecoveryRepository; products: ProductRepository; settings: SettingsRepository; operators: OperatorRepository; sales: SaleRepository; cash: CashRepository; financial: FinancialRepository; credits: CustomerCreditRepository; draft: DraftRepository; backups: BackupRepository; changes: ChangeSubscription; }
