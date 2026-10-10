@@ -1,0 +1,38 @@
+const messages:Record<string,string>={
+ DATABASE_VERSION_INCOMPATIBLE:'O banco ou backup pertence a uma versão incompatível. Preserve os arquivos e atualize o aplicativo ou procure suporte.',
+ DATABASE_CORRUPT:'Há uma inconsistência no banco. Preserve o perfil e os backups; procure suporte antes de continuar.',
+ DATABASE_SCHEMA_MISMATCH:'A estrutura do banco diverge da versão esperada. A operação foi bloqueada para preservar os dados.',
+ BACKUP_INVALID:'O backup ou a senha de recuperação é inválido. O banco atual foi preservado.',
+ BACKUP_SECRET_INVALID:'Use uma senha de recuperação de 12 a 128 caracteres.',
+ BACKUP_DESTINATION_INVALID:'Escolha um arquivo externo ao perfil do Raiz PDV, em uma pasta com permissão de escrita.',
+ BACKUP_REQUIRED:'Crie primeiro um backup externo verificado e recuperável.',
+ BACKUP_STALE:'Os dados mudaram desde o backup. Crie uma nova cópia antes de continuar.',
+ IMPORT_INVALID:'O arquivo tem dados inválidos ou relações legadas ambíguas. Nada foi importado. Preserve a origem para auditoria.',
+ IMPORT_CONFLICT:'A instalação já contém registros. Não é permitido misturar duas bases.',
+ IMPORT_DIVERGENCE:'A conferência encontrou divergência. A importação foi revertida.',
+ RESTORE_BLOCKED:'A restauração foi bloqueada para proteger identidade, geração ou produção. Preserve os arquivos e procure suporte.',
+ CONFIRMATION_REQUIRED:'A operação exige confirmação explícita.',
+ UNAUTHORIZED:'Entre novamente com seu operador e senha.',
+ AUTHENTICATION_FAILED:'Operador, senha ou código de autorização incorreto.',
+ FORBIDDEN:'Seu operador não tem permissão para esta operação.',
+ REAUTHENTICATION_REQUIRED:'Confirme novamente sua senha antes de continuar.',
+ RATE_LIMITED:'Muitas tentativas incorretas. Aguarde 15 minutos antes de tentar novamente.',
+ INSTALLATION_BLOCKED:'Esta instalação ainda não está preparada para operações comerciais.',
+ CASH_UNAVAILABLE:'Confira o operador e o caixa aberto de hoje. Feche as pendências antes de continuar.',
+ INSUFFICIENT_FUNDS:'O saldo disponível não é suficiente para esta operação.',
+ SALE_INVALID:'Confira os produtos, quantidades e pagamentos da venda.',
+ INVALID_REQUEST:'Confira os dados informados antes de continuar.',
+ ALREADY_RESOLVED:'Esta operação já foi resolvida ou ultrapassa o valor ou quantidade permitido.',
+ CREDIT_UNAUTHORIZED:'Informe novamente o código do crédito antes de concluir a venda.',
+ RECOVERY_BLOCKED:'Há uma operação que precisa de recuperação. Preserve os dados e procure suporte.',
+ STALE_RECONCILIATION:'O caixa mudou. Confira os valores novamente antes de fechar.',
+ REQUEST_CONFLICT:'O identificador desta operação já está associado a outros dados.',
+ REQUEST_INTERRUPTED:'A operação foi interrompida e precisa de conferência antes de continuar.',
+ DATABASE_BUSY:'O banco está ocupado. Tente novamente para continuar a mesma operação.',
+ UNSUPPORTED_OPERATION:'Esta função estará disponível após a preparação da instalação desktop.',
+ PRINT_FAILED:'O crédito foi registrado, mas o comprovante não foi impresso. Tente novamente para reimprimir.',
+};
+export class DesktopPersistenceError extends Error {
+ constructor(readonly code:string,readonly requestId?:string){super(messages[code]??'Não foi possível receber a confirmação. A operação pode já ter sido registrada. Tente novamente para recuperar o mesmo resultado.');this.name='DesktopPersistenceError';}
+}
+export function desktopFailure(error:unknown,requestId?:string){if(error instanceof DesktopPersistenceError)return requestId&&!error.requestId?new DesktopPersistenceError(error.code,requestId):error;const code=error instanceof Error&&/^[A-Z_]{1,64}$/.test(error.message)?error.message:'COMMUNICATION_FAILED';return new DesktopPersistenceError(code,requestId);}
