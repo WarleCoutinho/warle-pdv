@@ -20,6 +20,7 @@ export function PageNavigation({ activePage, onNavigate }: PageNavigationProps) 
     <nav aria-label="Navegação principal" className="page-nav">
       {pages.map((page) => (
         <button
+          data-guide={page.id}
           aria-current={activePage === page.id ? 'page' : undefined}
           className={activePage === page.id ? 'active' : ''}
           key={page.id}
